@@ -1,0 +1,25 @@
+# Netlify configuratie — serveert de statische frontend.
+# De Python-backend draait apart (Fly.io/Railway) — zie README "Backend hosting".
+
+[build]
+  # Publiceer alleen de web-folder
+  publish = "apps/web"
+  # Geen build-step nodig: het is vanilla HTML/CSS/JS.
+  command = "echo 'no build needed'"
+
+# Vriendelijke URL's
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Security-headers (basis, geen overkill voor een static site)
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    # CSP: sta API-calls naar de backend toe (via env-var runtime-config)
+    # Strip/pas aan wanneer je je eigen backend-domain hebt.
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://*.fly.dev https://*.railway.app https://*.onrender.com https://api.pdok.nl https://datasets.cbs.nl https://dataderden.cbs.nl https://data.rivm.nl https://geo.leefbaarometer.nl https://service.pdok.nl https://services.arcgis.com https://image.arcgisonline.nl"

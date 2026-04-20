@@ -1,0 +1,25 @@
+# Secrets — NOOIT committen
+.env
+.env.local
+*.key
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# SQLite caches + downloaded bulk files (regenereerbaar via sync-scripts)
+# GitHub heeft 100 MB file limit; de RVO CSV-ZIP is 225 MB, DB is 1 GB.
+apps/api/cache/
+!apps/api/cache/.gitkeep
+
+# OS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+
+# Logs
+*.log
+/tmp/

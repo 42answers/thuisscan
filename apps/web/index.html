@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Thuisscan — Eén blik op je woning en buurt</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="hero">
+    <h1>Thuisscan</h1>
+    <p class="subtitle">Eén adres. Alles wat je wil weten over je woning en buurt.</p>
+
+    <div class="search">
+      <input
+        id="q"
+        type="search"
+        placeholder="Damrak 1, Amsterdam"
+        autocomplete="off"
+        aria-label="Adres"
+      />
+      <ul id="suggestions" role="listbox" hidden></ul>
+    </div>
+  </header>
+
+  <main id="result" hidden>
+    <div class="section-address">
+      <h2 id="r-address"></h2>
+      <p class="muted" id="r-codes"></p>
+    </div>
+
+    <!-- Cover: Leefbaarometer-score -->
+    <section class="cover" id="s-cover" hidden>
+      <div class="cover-top">
+        <div class="cover-score">
+          <strong id="cover-number">—</strong>
+          <span class="cover-suffix">/ 9</span>
+          <div class="cover-scope">direct rondom (±100 m)</div>
+        </div>
+        <div class="cover-body">
+          <div class="cover-label" id="cover-label">—</div>
+          <p class="cover-meaning" id="cover-meaning"></p>
+          <div class="cover-bar"><span class="cover-bar-fill" id="cover-fill"></span></div>
+          <div class="cover-bar-scale"><span>slechtst NL</span><span>NL-gemiddelde</span><span>top NL</span></div>
+          <p class="cover-compare" id="cover-compare"></p>
+        </div>
+      </div>
+      <div class="cover-dims" id="cover-dims"></div>
+      <p class="prov">Bron: Leefbaarometer 3.0 (BZK) · peiljaar 2024 · samengestelde score uit 100+ indicatoren</p>
+    </section>
+
+    <!-- Sectie 1: De woning -->
+    <section class="card" id="s-woning">
+      <h3>1 · De woning</h3>
+      <div class="grid-2" id="s-woning-grid"></div>
+      <p class="prov" id="p-woning"></p>
+    </section>
+
+    <!-- Sectie 2: Waarde & wijk-economie -->
+    <section class="card" id="s-wijk">
+      <h3>2 · Waarde &amp; wijk-economie</h3>
+      <div class="grid-2" id="s-wijk-grid"></div>
+      <p class="prov" id="p-wijk"></p>
+    </section>
+
+    <!-- Voorzieningen — lijst dichtbij naar ver -->
+    <section class="card" id="s-voorz">
+      <h3>Voorzieningen rond het adres</h3>
+      <ul class="voorz-list" id="voorz-list"></ul>
+      <p class="muted small">
+        Gesorteerd op afstand (dichtbij → ver). Buurt- of gemeentegemiddelde uit CBS;
+        adres-precieze POI's komen in v2.
+      </p>
+    </section>
+
+    <!-- Sectie 3: De buren -->
+    <section class="card" id="s-buren">
+      <h3>3 · De buren (sociaal weefsel)</h3>
+      <div class="grid-2" id="s-buren-grid"></div>
+    </section>
+
+    <!-- Sectie 4: Veiligheid -->
+    <section class="card" id="s-veiligheid">
+      <h3>4 · Veiligheid</h3>
+      <div class="grid-2" id="s-veiligheid-grid"></div>
+      <p class="muted small">Periode: <span id="f-periode">—</span></p>
+      <p class="prov" id="p-veiligheid"></p>
+    </section>
+
+    <!-- Sectie 5: Leefkwaliteit -->
+    <section class="card" id="s-lucht">
+      <h3>5 · Leefkwaliteit hier &amp; nu</h3>
+      <div class="grid-2" id="s-lucht-grid"></div>
+      <p class="prov" id="p-lucht"></p>
+    </section>
+
+    <!-- Sectie 6: Klimaatrisico -->
+    <section class="card" id="s-klimaat">
+      <h3>6 · Klimaatrisico (komende 20 jr)</h3>
+      <div class="grid-2" id="s-klimaat-grid"></div>
+      <p class="prov" id="p-klimaat"></p>
+    </section>
+  </main>
+
+  <div id="error" class="error" hidden></div>
+  <div id="loading" class="loading" hidden>Thuisscan wordt opgehaald…</div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
