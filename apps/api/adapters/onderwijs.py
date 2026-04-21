@@ -25,9 +25,16 @@ from typing import Optional
 # Data-bestand (geproduceerd door scripts/sync_onderwijs.py)
 DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "onderwijs.json"
 
-# Defaults: binnen deze radius zoeken. 1 km is een realistische schaal
-# voor kinderopvang en basisscholen ("loopafstand ouders").
-DEFAULT_RADIUS_M = 1500
+# Radii per categorie. Kinderopvang krijgt een STRIKTE 500m — binnen
+# loop-/fiets-afstand en met een stad als Amsterdam leveren grotere
+# radii snel >100 locaties op, wat niet bruikbaar is.
+# Scholen: 1500m — basisschool is een typische 'loopafstand' maar
+# ouders accepteren wel wat fietsen.
+RADIUS_KINDEROPVANG_M = 500
+RADIUS_SCHOLEN_M = 1500
+# Legacy default (mocht de adapter-functie nog met 1 radius worden
+# aangeroepen); voor nieuwe code hierboven.
+DEFAULT_RADIUS_M = RADIUS_SCHOLEN_M
 # Maximaal aantal hits per categorie in output
 TOP_N = 5
 
@@ -88,7 +95,7 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 def fetch_onderwijs(
     lat: float,
     lon: float,
-    radius_m: int = DEFAULT_RADIUS_M,
+    radius_m: int = DEFAULT_RADIUS_M,  # legacy — niet meer direct gebruikt
     top_n: int = TOP_N,
 ) -> dict:
     """Retourneer aggregaten + top-N dichtstbijzijnde per categorie.
@@ -113,17 +120,17 @@ def fetch_onderwijs(
         }
     """
     data = _load()
-    # Rough bbox filter — vermijd haversine op heel NL; pak eerst
-    # kandidaten binnen ~0.02 graden (~2km) en doe daarna haversine.
-    deg = (radius_m / 111_000) * 1.5  # ruim marge, haversine is beslissend
+    # Aparte bbox-deg per radius (kinderopvang: tight 500m; scholen: 1500m)
+    deg_ko = (RADIUS_KINDEROPVANG_M / 111_000) * 1.5
+    deg_sc = (RADIUS_SCHOLEN_M / 111_000) * 1.5
 
-    # --- Kinderopvang ---
+    # --- Kinderopvang (500m radius) ---
     ko_hits: list[OnderwijsItem] = []
     for row in data.get("kinderopvang", []):
-        if abs(row["lat"] - lat) > deg or abs(row["lon"] - lon) > deg:
+        if abs(row["lat"] - lat) > deg_ko or abs(row["lon"] - lon) > deg_ko:
             continue
         d = _haversine_m(lat, lon, row["lat"], row["lon"])
-        if d > radius_m:
+        if d > RADIUS_KINDEROPVANG_M:
             continue
         ko_hits.append(OnderwijsItem(
             categorie="kinderopvang",
@@ -139,13 +146,13 @@ def fetch_onderwijs(
         ))
     ko_hits.sort(key=lambda x: x.meters)
 
-    # --- Scholen ---
+    # --- Scholen (1500m radius) ---
     sch_hits: list[OnderwijsItem] = []
     for row in data.get("scholen", []):
-        if abs(row["lat"] - lat) > deg or abs(row["lon"] - lon) > deg:
+        if abs(row["lat"] - lat) > deg_sc or abs(row["lon"] - lon) > deg_sc:
             continue
         d = _haversine_m(lat, lon, row["lat"], row["lon"])
-        if d > radius_m:
+        if d > RADIUS_SCHOLEN_M:
             continue
         sch_hits.append(OnderwijsItem(
             categorie="school",
@@ -160,7 +167,9 @@ def fetch_onderwijs(
             inspectie_oordeel=row.get("inspectie_oordeel"),
             inspectie_peildatum=row.get("inspectie_peildatum"),
             brin=row.get("brin"),
-            url=row.get("url"),
+            # Prioriteer sok_url uit sitemap-match; val terug op school's
+            # eigen website als die er is
+            url=row.get("sok_url") or row.get("url"),
         ))
     sch_hits.sort(key=lambda x: x.meters)
 
@@ -180,16 +189,17 @@ def fetch_onderwijs(
     return {
         "available": True,
         "peildatum": data.get("peildatum"),
-        "radius_m": radius_m,
         "kinderopvang": {
             "aantal_locaties": len(ko_hits),
             "totaal_kindplaatsen": totaal_kindplaatsen,
             "per_type": per_type,
+            "radius_m": RADIUS_KINDEROPVANG_M,
             "top": [_item_to_dict(it) for it in ko_hits[:top_n]],
         },
         "scholen": {
             "aantal": len(sch_hits),
             "oordelen": oordelen,
+            "radius_m": RADIUS_SCHOLEN_M,
             "top": [_item_to_dict(it) for it in sch_hits[:top_n]],
         },
     }

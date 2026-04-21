@@ -39,6 +39,7 @@ INSPECTIE_URL = (
     "https://onderwijsdata.duo.nl/dataset/31da72f2-2858-4bc3-848e-dfe4875ba669/"
     "resource/b48d6835-0534-4008-82c8-1754b9080113/download/oordeel_po_so_vo.csv"
 )
+SOK_SITEMAP_URL = "https://scholenopdekaart.nl/sitemap-basisscholen.xml"
 
 # Script-relatieve paden: werkt vanuit zowel apps/api als repo-root
 HERE = Path(__file__).resolve().parent
@@ -130,6 +131,123 @@ def _parse_scholen(path: Path) -> list[dict]:
             })
     print(f"  {len(out)} basisonderwijs-vestigingen")
     return out
+
+
+async def _fetch_sok_sitemap() -> dict[tuple[str, str], str]:
+    """Download SoK-sitemap en bouw (plaats_slug, naam_slug) → url mapping.
+
+    Scholen op de Kaart (SoK) heeft geen publieke BRIN→URL API en rendert
+    client-side met Angular. De sitemap bevat echter ALLE school-URLs:
+        https://scholenopdekaart.nl/basisscholen/<plaats>/<id>/<slug>/
+
+    We bouwen een index op (plaats_slug, naam_slug) + een reverse-index
+    op naam_slug alleen (voor unique-matches zonder plaats-match).
+    """
+    try:
+        async with httpx.AsyncClient(timeout=60.0, headers=HEADERS) as client:
+            resp = await client.get(SOK_SITEMAP_URL)
+            resp.raise_for_status()
+            xml_text = resp.text
+    except Exception as e:
+        print(f"  sitemap-download mislukt: {e}")
+        return {}
+
+    import re as _re
+    urls = _re.findall(r"<loc>(https://scholenopdekaart\.nl/basisscholen/[^<]+)</loc>", xml_text)
+    print(f"  SoK sitemap: {len(urls)} school-URLs")
+    index: dict[tuple[str, str], str] = {}
+    for u in urls:
+        parts = u.rstrip("/").split("/")
+        if len(parts) < 6:
+            continue
+        plaats_slug, _id, naam_slug = parts[-3], parts[-2], parts[-1]
+        # Voeg zowel ruwe slug als ALLE stripped varianten toe aan index.
+        # SoK-slugs hebben vaak prefixen als 'obs-', 'cbs-', 'rkbs-' die
+        # in DUO-namen anders of niet voorkomen ('Corantijn' vs 'obs-corantijn').
+        for variant in _slug_variants(naam_slug.replace("-", " ")):
+            index.setdefault((plaats_slug, variant), u)
+        # En de ruwe originele vorm
+        index.setdefault((plaats_slug, naam_slug), u)
+    return index
+
+
+def _slugify(s: str) -> str:
+    """Slugify als Scholen op de Kaart: lowercase, alleen a-z0-9-."""
+    import re as _re
+    import unicodedata
+    # Normalize accenten (é → e)
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+    s = s.lower()
+    s = _re.sub(r"[^a-z0-9\s-]", "", s)
+    s = _re.sub(r"[\s-]+", "-", s.strip())
+    return s.strip("-")
+
+
+def _slug_variants(naam: str) -> list[str]:
+    """Genereer meerdere slug-varianten voor fuzzy matching.
+
+    DUO-namen variëren (bv 'R.K. Basisschool' / 'Rooms-Katholieke Basisschool'
+    / 'RK Basisschool'). SoK heeft vaak consistenter namen. Door prefixen
+    te strippen of variaties te proberen, raken we meer matches.
+    """
+    base = _slugify(naam)
+    variants = [base]
+    # Strip gangbare prefixen + schooltype-woorden
+    stripped = base
+    for pattern in [
+        "openbare-basisschool-",
+        "christelijke-basisschool-",
+        "rooms-katholieke-basisschool-",
+        "protestants-christelijke-basisschool-",
+        "rooms-katholieke-",
+        "protestants-christelijke-",
+        "christelijk-kindcentrum-",
+        "openbaar-kindcentrum-",
+        "kindcentrum-",
+        "basisschool-",
+        "obs-",
+        "cbs-",
+        "rkbs-",
+        "kbs-",
+        "pcbs-",
+        "rk-",
+        "pc-",
+        "cb-",
+    ]:
+        if stripped.startswith(pattern):
+            stripped = stripped[len(pattern):]
+            variants.append(stripped)
+            break
+    # Soms heeft DUO 'school' in de naam, SoK niet (of andersom)
+    if stripped.startswith("de-") or stripped.startswith("het-"):
+        variants.append(stripped.split("-", 1)[1])  # strip lidwoord
+    # Unique + non-empty
+    return list(dict.fromkeys(v for v in variants if v))
+
+
+def _find_sok_url(
+    naam: str, plaats: str, sok_index: dict[tuple[str, str], str]
+) -> Optional[str]:
+    """Zoek een Scholen op de Kaart-URL voor (naam, plaats).
+
+    Probeer meerdere slug-varianten (exact + stripped prefixes) tegen
+    de (plaats, naam) index van SoK. Retourneert None bij geen match.
+    """
+    if not naam or not plaats:
+        return None
+    plaats_slug = _slugify(plaats)
+    for variant in _slug_variants(naam):
+        url = sok_index.get((plaats_slug, variant))
+        if url:
+            return url
+    # Slug-only match als er exact één SoK-URL met deze slug bestaat
+    # (werkt voor unieke school-namen zoals 'de-visserschool')
+    slug_only = {slug: url for (_, slug), url in sok_index.items()}
+    for variant in _slug_variants(naam):
+        url = slug_only.get(variant)
+        if url:
+            return url
+    return None
 
 
 def _parse_inspectie(path: Path) -> dict[str, dict]:
@@ -234,6 +352,17 @@ async def main() -> None:
     kinderopvang = _parse_lrk(lrk_csv)
     scholen = _parse_scholen(scholen_csv)
     inspectie_by_key = _parse_inspectie(inspectie_csv)
+
+    print("[3a/5] Scholen op de Kaart sitemap → directe URLs…")
+    sok_index = await _fetch_sok_sitemap()
+    sok_matches = 0
+    for s in scholen:
+        url = _find_sok_url(s.get("naam", ""), s.get("plaats", ""), sok_index)
+        if url:
+            s["sok_url"] = url
+            sok_matches += 1
+    pct = 100 * sok_matches // max(1, len(scholen))
+    print(f"  {sok_matches} / {len(scholen)} scholen hebben directe SoK-URL ({pct}%)")
 
     print("[3/5] Join scholen ↔ inspectie op BRIN-vestiging…")
     for s in scholen:

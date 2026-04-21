@@ -500,13 +500,14 @@ function renderOnderwijs(o) {
 
   const ko = o.kinderopvang || {};
   const sc = o.scholen || {};
-  const radiusKm = ((o.radius_m || 1500) / 1000).toFixed(1);
+  const koRadius = ko.radius_m ? (ko.radius_m < 1000 ? `${ko.radius_m} m` : `${(ko.radius_m/1000).toFixed(1)} km`) : '1 km';
+  const scRadius = sc.radius_m ? (sc.radius_m < 1000 ? `${sc.radius_m} m` : `${(sc.radius_m/1000).toFixed(1)} km`) : '1.5 km';
 
   // Samenvatting (top-regel) van kinderopvang
   const koHeader = ko.aantal_locaties > 0
-    ? `<strong>${ko.aantal_locaties}</strong> kinderopvang-locaties binnen ${radiusKm} km` +
+    ? `<strong>${ko.aantal_locaties}</strong> kinderopvang-locaties binnen ${koRadius}` +
       (ko.totaal_kindplaatsen ? ` · ${ko.totaal_kindplaatsen.toLocaleString('nl-NL')} kindplaatsen` : '')
-    : `Geen kinderopvang binnen ${radiusKm} km gevonden.`;
+    : `Geen kinderopvang binnen ${koRadius} gevonden.`;
 
   const koTypeLabels = { KDV: 'dagverblijf', BSO: 'buitenschoolse opvang', VGO: 'gastouder', GO: 'gastouder-buro' };
   const koTypeSummary = ko.per_type
@@ -534,8 +535,8 @@ function renderOnderwijs(o) {
 
   // Scholen — top 5 met inspectie-chip
   const schHeader = sc.aantal > 0
-    ? `<strong>${sc.aantal}</strong> basisscholen binnen ${radiusKm} km`
-    : `Geen basisscholen binnen ${radiusKm} km gevonden.`;
+    ? `<strong>${sc.aantal}</strong> basisscholen binnen ${scRadius}`
+    : `Geen basisscholen binnen ${scRadius} gevonden.`;
 
   const schOordelenBadges = sc.oordelen
     ? Object.entries(sc.oordelen).filter(([_, n]) => n > 0).map(([label, n]) => {
@@ -554,18 +555,24 @@ function renderOnderwijs(o) {
     const oordeelChip = oordeel
       ? `<span class="chip chip-${oordeelLvl} chip-inline">${escape(oordeel)}</span>`
       : '';
-    // Scholen op de Kaart heeft geen directe BRIN-URL, maar Google 'site:'-
-    // search geeft vrijwel altijd de juiste SoK-pagina als eerste hit.
-    // Deep-link: "scholenopdekaart.nl + schoolnaam" → openen in nieuw tab.
-    const sokQuery = encodeURIComponent(`${it.naam || ''} site:scholenopdekaart.nl`);
-    const sokLink = it.naam
-      ? `<a href="https://www.google.com/search?q=${sokQuery}" target="_blank" rel="noopener" class="onderwijs-info-link" title="Open Scholen op de Kaart via Google">Scholen op de Kaart ↗</a>`
+    // it.url bevat bij voorkeur de directe Scholen-op-de-Kaart URL
+    // (via sync-sitemap-match, ~74% van de scholen). Fallback: als we
+    // geen SoK-match hebben, gebruiken we Google site-search naar SoK.
+    let infoUrl = it.url;
+    if (!infoUrl || !infoUrl.includes("scholenopdekaart.nl")) {
+      // Geen directe SoK-URL; bouw Google-search als fallback
+      infoUrl = it.naam
+        ? `https://www.google.com/search?q=${encodeURIComponent(it.naam + ' site:scholenopdekaart.nl')}`
+        : '';
+    }
+    const infoLink = infoUrl
+      ? `<a href="${escape(infoUrl)}" target="_blank" rel="noopener" class="onderwijs-info-link" title="Open Scholen op de Kaart">info ↗</a>`
       : '';
     return `
       <li class="onderwijs-item">
         <span class="onderwijs-icoon">🏫</span>
         <span class="onderwijs-main">
-          <span class="onderwijs-naam">${escape(it.naam || '(onbekend)')} ${sokLink}</span>
+          <span class="onderwijs-naam">${escape(it.naam || '(onbekend)')} ${infoLink}</span>
           <span class="onderwijs-sub">${escape(it.denominatie || '')} ${oordeelChip}</span>
         </span>
         <span class="onderwijs-dist">${formatMeters(it.meters)}</span>
