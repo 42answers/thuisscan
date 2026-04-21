@@ -1,6 +1,9 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3 -u
 """
 Maandelijkse sync van EP-Online bulk-bestanden naar lokale SQLite-cache.
+
+Gebruik `python -u` (of PYTHONUNBUFFERED=1) om log live te kunnen tailen;
+anders buffert Python prints bij non-tty stdout.
 
 Draaischema (aanbevolen):
   - Op de 2e dag van de maand -> download het volledige 'totaalbestand'
