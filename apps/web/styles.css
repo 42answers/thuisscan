@@ -317,6 +317,16 @@ main {
 .verkiezing-list .gem { font-variant-numeric: tabular-nums; color: var(--ink); }
 .verkiezing-list .nl { color: var(--muted); font-size: 0.8rem; }
 
+/* Compacte variant — past in één grid-cel naast gem. huishoudensgrootte */
+.verkiezing-compact li {
+  padding: 0.25rem 0;
+  font-size: 0.88rem;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.verkiezing-compact strong { font-size: 0.95rem; }
+.verkiezing-compact .nl { font-size: 0.72rem; }
+
 .prov {
   margin: 1rem 0 0;
   padding-top: 0.8rem;

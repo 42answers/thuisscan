@@ -226,27 +226,28 @@ function render(d) {
   // Grid (2×2): huishoudensverdeling + demografie.
   // Full-width daaronder: leeftijdsprofiel (stacked bar) + TK-uitslag.
   const b = d.buren || {};
+  // Layout: 2×2 grid met demografie, dan full-width bars eronder.
+  //   rij 1: Eenpersoonshuishoudens | Huishoudens met kinderen
+  //   rij 2: Gem. huishoudensgrootte | TK-uitslag (lokale top 3)
+  //   dan:   Leeftijdsmix (full-width)
+  //          Migratieachtergrond (full-width)
   const grid = [
     fieldHTML('Eenpersoonshuishoudens', b.eenpersoons),
     fieldHTML('Huishoudens met kinderen', b.met_kinderen),
     fieldHTML('Gem. huishoudensgrootte', b.huishoudensgrootte,
       it => `${it.value} pers.`),
   ];
-  // Leeftijdsprofiel als stacked-bar row (full-width); hergebruikt de
-  // eigendomsverhouding-styling voor consistentie.
+  // TK-uitslag compact in het kwadrant naast huishoudensgrootte
+  if (b.verkiezing_tk2023) {
+    grid.push(renderVerkiezing(b.verkiezing_tk2023));
+  }
   if (b.leeftijdsprofiel) {
     const leefHTML = renderLeeftijdsprofiel(b.leeftijdsprofiel);
     if (leefHTML) grid.push(leefHTML);
   }
-  // Migratieachtergrond (peiljaar 2020) als stacked-bar row (full-width).
-  // Kan scope=buurt/wijk/gemeente zijn afhankelijk van beschikbaarheid.
   if (b.migratieachtergrond) {
     const migHTML = renderMigratieachtergrond(b.migratieachtergrond);
     if (migHTML) grid.push(migHTML);
-  }
-  // TK2023-verkiezing top-3 als aparte full-width row onder de grid
-  if (b.verkiezing_tk2023) {
-    grid.push(renderVerkiezing(b.verkiezing_tk2023));
   }
   renderGrid('s-buren-grid', grid);
 
@@ -324,16 +325,22 @@ function renderVerkiezing(v) {
     const delta = p.delta_pct != null
       ? ` <span class="${p.delta_pct > 0 ? 'trend-good' : 'trend-warn'} trend-chip">${p.delta_pct > 0 ? '+' : ''}${p.delta_pct}</span>`
       : '';
-    return `<li><strong>${escape(p.partij)}</strong> <span class="gem">${gem}</span> <span class="nl">(landelijk ${nl})</span>${delta}</li>`;
+    return `<li><strong>${escape(p.partij)}</strong> <span class="gem">${gem}</span> <span class="nl">(NL ${nl})</span>${delta}</li>`;
   }).join('');
   const note = v.per_gemeente_beschikbaar
     ? ''
-    : '<p class="hint">Gemeente-specifieke uitslag nog niet in onze database — toont landelijke top 3.</p>';
+    : '<p class="hint">Gemeente-specifieke uitslag nog niet beschikbaar — toont landelijke top 3.</p>';
   const electionLabel = (v.election || 'TK2025');
-  const electionDate = v.date ? ` (${v.date})` : '';
-  return `<div class="field field-fullwidth">
-    <span class="label">Top 3 ${escape(electionLabel)}${escape(electionDate)}</span>
-    <ul class="verkiezing-list">${rows}</ul>
+  // Compact (single-column) variant: past in het leeg quadrant naast
+  // Gemiddelde huishoudensgrootte. Fullwidth zou onnodig ruimte pakken.
+  // Label expliciet 'in deze gemeente' zodat duidelijk is dat het LOKAAL
+  // is (percentage naast partij), met landelijk tussen haakjes.
+  const gemeenteLabel = v.per_gemeente_beschikbaar
+    ? 'Grootste partijen in deze gemeente'
+    : `Grootste partijen (landelijke ${electionLabel})`;
+  return `<div class="field">
+    <span class="label">${escape(gemeenteLabel)}</span>
+    <ul class="verkiezing-list verkiezing-compact">${rows}</ul>
     ${note}
   </div>`;
 }
