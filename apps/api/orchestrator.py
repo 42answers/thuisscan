@@ -1105,6 +1105,17 @@ def _serialize_ontwikkeling(
             f"Totaal stabiel over {horizon_label}, maar onder de motorkap "
             f"wél beweging:"
         )
+    # Tegengesteld scenario: totaal BEWOOG (verbeterd of verslechterd) maar
+    # geen enkele dimensie sprong naar een andere klasse. Dit gebeurt wanneer
+    # alle dimensies licht (<1 klasse) veranderden — de som was genoeg om het
+    # totaal omhoog te duwen, maar individueel te klein voor klasse-rounding.
+    # Zonder uitleg lijkt "Licht verbeterd" in tegenspraak met 5 keer "stabiel".
+    elif o.score != 5 and not veranderingen:
+        richting = "verbetering" if o.score > 5 else "verslechtering"
+        beschrijving += (
+            f" Kleine {richting} verspreid over alle dimensies — "
+            f"niet één specifieke dimensie sprong naar een andere klasse."
+        )
 
     return {
         "periode": o.periode,

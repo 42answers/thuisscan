@@ -284,10 +284,14 @@ def ref_verschilzetting(pct: Optional[float]) -> Optional[Reference]:
 
 
 def ref_overstromingskans(klasse: Optional[int]) -> Optional[Reference]:
-    """Plaatsgebonden overstromingskans (rivier/zee/dijkdoorbraak)."""
+    """Plaatsgebonden overstromingskans (rivier/zee/dijkdoorbraak).
+
+    Klasse 0 = NoData in CAS (locatie beschermd door dijk/wal/hoger gelegen).
+    """
     if klasse is None:
         return None
     teksten = {
+        0: ("good", "geen risico", "Achter dijk of hoger gelegen; praktisch geen kans op overstroming."),
         1: ("good", "zeer laag", "Praktisch geen kans op overstroming."),
         2: ("good", "laag", "Overstroming is een extreem zeldzaam scenario."),
         3: ("neutral", "middel", "Gemiddeld voor NL; dijk- of duinbescherming volstaat."),

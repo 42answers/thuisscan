@@ -215,6 +215,10 @@ async def fetch_klimaat(
         ))
 
     # --- Overstromingskans (plaatsgebonden, van rivier/zee) ---
+    # We tonen ALTIJD een overstromings-record, ook bij NoData, zodat de
+    # gebruiker ziet dat we hebben gekeken. NoData in de CAS-raster = locatie
+    # wordt door het systeem beschouwd als beschermd (achter dijk/wal) of
+    # hoger gelegen → dus 'geen risico'.
     ok = res["oversr_kans"] if isinstance(res["oversr_kans"], (int, float)) else None
     if ok is not None and ok > 0:
         risicos.append(Risico(
@@ -223,11 +227,20 @@ async def fetch_klimaat(
             relevant=True,
             klasse=int(round(ok)),
         ))
+    else:
+        # NoData fallback: 'praktisch geen risico' (achter dijk, hoger gelegen,
+        # of CAS heeft geen data voor dit punt). Klasse 0 signaleert 'geen'.
+        risicos.append(Risico(
+            key="overstroming",
+            label="Overstromingskans (rivier/zee)",
+            relevant=True,
+            klasse=0,
+        ))
 
     # --- Maximale overstromingsdiepte bij rampscenario ---
     # Raster levert waarde in METERS (F32, max ~100+ voor rampscenario's).
-    # We converteren naar cm voor consistente UI-eenheid; in de interpretatie
-    # rekenen we weer naar meters terug.
+    # Bij NoData tonen we 'geen risico' i.p.v. het veld te verbergen —
+    # anders denkt de gebruiker dat we het niet gecheckt hebben.
     od = res["oversr_diepte"] if isinstance(res["oversr_diepte"], (int, float)) else None
     if od is not None and od > 0.01:  # <1cm = ruis
         risicos.append(Risico(
@@ -235,6 +248,14 @@ async def fetch_klimaat(
             label="Maximale overstromingsdiepte (rampscenario)",
             relevant=True,
             waarde=round(float(od) * 100, 0),  # m → cm
+            eenheid="cm",
+        ))
+    else:
+        risicos.append(Risico(
+            key="overstroming_diepte",
+            label="Maximale overstromingsdiepte (rampscenario)",
+            relevant=True,
+            waarde=0,  # 0 = geen risico
             eenheid="cm",
         ))
 
