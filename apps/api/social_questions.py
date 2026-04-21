@@ -306,7 +306,14 @@ def vraag_kinderen(scan: dict) -> SocialeVraag:
             f"{kind_pct}% (NL-gem ~34%)",
             sl,
         ))
-    h_grootte = _safe(scan, "buren", "huishoudensgrootte")
+    # buren.huishoudensgrootte is nu een indicator-dict {value, unit, ref, scope}
+    # (was voorheen een float). Lees .value — of accepteer nog losse floats voor
+    # backwards-compat met evt. caches.
+    h_grootte_raw = _safe(scan, "buren", "huishoudensgrootte")
+    h_grootte = (
+        h_grootte_raw.get("value") if isinstance(h_grootte_raw, dict)
+        else h_grootte_raw
+    )
     if h_grootte is not None:
         # Grote huishoudens = meestal gezinnen. >2.3 = good (gezinsbuurt)
         sl = "good" if h_grootte >= 2.4 else "neutral" if h_grootte >= 2.0 else "warn"
