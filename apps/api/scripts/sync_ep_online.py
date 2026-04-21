@@ -74,7 +74,7 @@ def main() -> int:
     # Stap 2: stream-download naar disk (niet BytesIO) om low-RAM hosts
     # niet te belasten. 225 MB op disk is goedkoper dan in RAM, en de
     # zipfile kan dan streaming door de file heen lopen.
-    zip_path = OUT_PATH.parent.parent / "cache" / "ep_online_latest.zip"
+    zip_path = DB_PATH.parent / "ep_online_latest.zip"
     zip_path.parent.mkdir(parents=True, exist_ok=True)
     print(f"Downloading (~225MB) naar {zip_path}...")
     with httpx.stream("GET", url, timeout=600.0, follow_redirects=True) as resp:
