@@ -133,6 +133,28 @@ async def scan_endpoint(q: str = Query(..., min_length=3, description="Adres")) 
     return orchestrator.result_as_dict(result)
 
 
+@app.get("/voorzieningen")
+async def voorzieningen_endpoint(
+    lat: float = Query(..., description="WGS84 latitude van het adres"),
+    lon: float = Query(..., description="WGS84 longitude van het adres"),
+    buurtcode: str = Query("", description="CBS-buurtcode (voor CBS-fallback)"),
+    gemeentecode: str = Query("", description="CBS-gemeentecode (voor CBS-fallback)"),
+) -> dict:
+    """Voorzieningen rond een adres (OSM POI's + CBS-fallback).
+
+    Aparte endpoint omdat de Overpass-call duur is (3-6s cold). De frontend
+    roept /scan eerst aan (snel), toont de hoofdpagina, en haalt vervolgens
+    deze endpoint in de achtergrond op. Zo wacht de gebruiker niet op de
+    trage voorzieningen-call voor ze iets te zien krijgen.
+    """
+    try:
+        return await orchestrator.fetch_voorzieningen(
+            lat=lat, lon=lon, buurtcode=buurtcode, gemeentecode=gemeentecode
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Voorzieningen faalde: {e}") from e
+
+
 @app.get("/pand-geometry")
 async def pand_geometry(pand_id: str = Query(..., min_length=10)) -> dict:
     """GeoJSON-geometrie van een BAG-pand (voor kaart-overlay).

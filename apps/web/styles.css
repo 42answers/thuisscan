@@ -990,6 +990,33 @@ main {
   font-style: italic;
   color: #a87b1a;
 }
+
+/* Skeleton loader — getoond terwijl /voorzieningen laadt (3-6s cold start
+   op Overpass). Pulse-animatie geeft feedback dat er iets gebeurt. */
+.voorz-loading-note {
+  font-size: 0.82rem;
+  color: var(--muted);
+  padding: 0.3rem 0 0.2rem;
+  font-style: italic;
+}
+.voorz-skeleton { opacity: 0.6; }
+.voorz-skeleton .voorz-emoji { color: var(--line); }
+.skel-bar {
+  display: block;
+  height: 10px;
+  background: linear-gradient(90deg, #eee 0%, #f6f6f6 50%, #eee 100%);
+  background-size: 200% 100%;
+  border-radius: 5px;
+  animation: skel-shimmer 1.4s infinite linear;
+}
+.skel-label { width: 55%; }
+.skel-sub { width: 35%; height: 8px; margin-top: 5px; }
+.skel-dist { width: 48px; height: 10px; margin-left: auto; }
+
+@keyframes skel-shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
 .voorz-bar {
   position: relative;
   height: 6px;

@@ -102,25 +102,15 @@ async def scan(query: str) -> ScanResult:
     )
     pand, buurt = await asyncio.gather(bag_task, cbs_task)
 
-    # Stap 2b: Politie + voorzieningen (OSM primary + CBS fallback) parallel.
-    # Politie hangt af van inwoners uit CBS; voorzieningen is onafhankelijk.
+    # Stap 2b: Politie + WOZ-trend parallel.
+    # Voorzieningen worden NIET hier opgehaald — OSM via Overpass is de
+    # traagste externe dep (~3-6s cold). In plaats daarvan biedt de API
+    # een aparte /voorzieningen endpoint die de frontend na render aanroept.
+    # Zo toont de hoofdpagina binnen ~1s, en schuiven voorzieningen later in.
     inwoners = buurt.inwoners if buurt else None
     politie_task = _cached_fetch_politie(match.buurtcode or "", inwoners)
-    # Beide voorzieningen-bronnen tegelijk: OSM (nauwkeurig, vaak compleet
-    # voor publieke infrastructuur) + CBS (minder accuraat maar dekt alle
-    # privé-categorieën zoals huisartsen). Samenvoegen in post-processing:
-    # OSM primary, CBS alleen als aanvulling voor categorieën waar OSM stil is.
-    overpass_task = _cached_fetch_overpass(match.lat, match.lon)
-    cbs_voorz_task = _cached_fetch_voorzieningen(
-        match.buurtcode or "", match.gemeentecode or ""
-    )
     woz_trend_task = _cached_fetch_woz_trend(match.buurtcode or "")
-    misdrijven, osm_pois, cbs_voorz, woz_trend = await asyncio.gather(
-        politie_task, overpass_task, cbs_voorz_task, woz_trend_task
-    )
-    # Merge OSM + CBS: OSM wint (heeft naam + precieze meters), CBS vult
-    # ontbrekende categorieën (huisartsenpost, buitenschoolse opvang, etc).
-    voorzieningen_lijst = _merge_voorzieningen(osm_pois, cbs_voorz)
+    misdrijven, woz_trend = await asyncio.gather(politie_task, woz_trend_task)
 
     # Stap 2c: RVO EP-Online + TK2025-uitslag (beide synchroon, geen I/O)
     # + Kadaster WOZ (async — vereist API-key, retourneert None zonder).
@@ -167,7 +157,11 @@ async def scan(query: str) -> ScanResult:
         wijk_economie=_build_wijk_economie(buurt, woz_trend),
 
         buren=_build_buren(buurt, tk_uitslag),
-        voorzieningen=_build_voorzieningen(voorzieningen_lijst),
+        # Voorzieningen worden apart geladen via /voorzieningen endpoint
+        # (Overpass-call duurt 3-6s cold; frontend haalt deze async op nadat
+        # de hoofdpagina is gerenderd). Hier een 'pending' placeholder zodat
+        # de frontend weet dat het nog komt.
+        voorzieningen={"available": False, "pending": True},
         veiligheid=_build_veiligheid(misdrijven),
         leefkwaliteit=_build_leefkwaliteit(lucht, geluid),
         klimaat=_build_klimaat(klimaatrisico),
@@ -250,6 +244,25 @@ async def _cached_fetch_woz_adres(
     if result is not None:
         _cache_set(key, result)
     return result
+
+
+async def fetch_voorzieningen(
+    lat: float,
+    lon: float,
+    buurtcode: str = "",
+    gemeentecode: str = "",
+) -> dict:
+    """Los endpoint: haal OSM + CBS voorzieningen parallel en merge.
+
+    Wordt door /voorzieningen in main.py aangeroepen — niet door scan().
+    Dit is de dure call (~3-6s cold, ~100ms warm) die we uit het hoofd-
+    scan-pad hebben gehaald zodat de pagina snel toont.
+    """
+    osm_task = _cached_fetch_overpass(lat, lon)
+    cbs_task = _cached_fetch_voorzieningen(buurtcode, gemeentecode)
+    osm_pois, cbs_voorz = await asyncio.gather(osm_task, cbs_task)
+    merged = _merge_voorzieningen(osm_pois, cbs_voorz)
+    return _build_voorzieningen(merged)
 
 
 async def _cached_fetch_overpass(lat: float, lon: float) -> list[overpass.POI]:

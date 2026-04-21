@@ -210,8 +210,15 @@ function render(d) {
   }
   renderGrid('s-wijk-grid', wijkGrid);
 
-  // Voorzieningen — lijst gesorteerd op afstand (geen ringen meer)
-  renderVoorzieningenList(d.voorzieningen);
+  // Voorzieningen — lazy geladen via /voorzieningen endpoint (duurt 3-6s cold
+  // op Overpass). Eerst skeleton tonen; loadVoorzieningenAsync vervangt het
+  // zodra de call terug is. Cached responses (~100ms) zijn vrijwel instant.
+  if (d.voorzieningen && d.voorzieningen.pending) {
+    renderVoorzieningenSkeleton();
+    loadVoorzieningenAsync(d.adres);
+  } else {
+    renderVoorzieningenList(d.voorzieningen);
+  }
 
   // Sectie 3: buren — alles via fieldHTML
   const b = d.buren || {};
@@ -916,6 +923,47 @@ const VOORZ_FILTERS = [
 
 let _voorzData = null;   // volledige voorzieningen-respons
 let _voorzFilter = 'alles';
+
+// Toont een skeleton-loader (8 fake rijen) zodat de sectie ruimte inneemt
+// terwijl de /voorzieningen endpoint laadt. Voorkomt 'jumpy' UI.
+function renderVoorzieningenSkeleton() {
+  const list = document.getElementById('voorz-list');
+  const filters = document.getElementById('voorz-filters');
+  if (filters) filters.innerHTML = '<div class="voorz-loading-note">Voorzieningen worden opgehaald uit OpenStreetMap…</div>';
+  if (!list) return;
+  const rows = Array.from({ length: 8 }, () => `
+    <li class="voorz-item voorz-skeleton">
+      <span class="voorz-emoji">·</span>
+      <span class="voorz-main"><span class="skel-bar skel-label"></span><span class="skel-bar skel-sub"></span></span>
+      <span class="voorz-bar"><span class="skel-bar"></span></span>
+      <span class="voorz-dist"><span class="skel-bar skel-dist"></span></span>
+    </li>
+  `).join('');
+  list.innerHTML = rows;
+}
+
+// Haalt /voorzieningen op nadat de hoofdpagina al is gerenderd. Werkt met
+// lat/lon uit het adres-object; buurtcode/gemeentecode voor CBS-fallback.
+async function loadVoorzieningenAsync(adres) {
+  if (!adres || !adres.wgs84) return;
+  const params = new URLSearchParams({
+    lat: String(adres.wgs84.lat),
+    lon: String(adres.wgs84.lon),
+    buurtcode: adres.buurtcode || '',
+    gemeentecode: adres.gemeentecode || '',
+  });
+  try {
+    const r = await fetch(`${API_BASE}/voorzieningen?${params.toString()}`);
+    if (!r.ok) throw new Error(`API ${r.status}`);
+    const voorz = await r.json();
+    renderVoorzieningenList(voorz);
+  } catch (e) {
+    const list = document.getElementById('voorz-list');
+    if (list) list.innerHTML = `<li class="muted small">Voorzieningen konden niet worden geladen (${escape(e.message)}).</li>`;
+    const filters = document.getElementById('voorz-filters');
+    if (filters) filters.innerHTML = '';
+  }
+}
 
 function renderVoorzieningenList(voorzieningen) {
   _voorzData = voorzieningen;
