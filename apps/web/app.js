@@ -472,7 +472,9 @@ function _loadStreetView() {
     + `&heading=${Math.round(heading)}`
     + `&pitch=5&fov=90`
     + `&source=outdoor`;
-  pane.innerHTML = `<iframe loading="lazy" allowfullscreen src="${url}"></iframe>`;
+  // allow-attribute voorkomt Permissions-Policy violations in de console;
+  // Google Street View heeft accelerometer/gyroscope nodig voor 360°-panning.
+  pane.innerHTML = `<iframe loading="lazy" allowfullscreen allow="accelerometer; gyroscope; fullscreen" src="${url}"></iframe>`;
 }
 
 // Centroid (simpel gemiddelde) van een GeoJSON Polygon/MultiPolygon, als [lat, lon]
