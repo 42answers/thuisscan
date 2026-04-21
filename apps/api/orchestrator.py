@@ -24,7 +24,7 @@ from typing import Optional
 
 import references
 import social_questions
-from adapters import bag, cbs, kadaster_woz, klimaat, leefbaarometer, onderwijs, overpass, pdok_locatie, politie, rivm_geluid, rivm_lki, rvo_ep, verkiezingen
+from adapters import bag, bereikbaarheid, cbs, kadaster_woz, klimaat, leefbaarometer, onderwijs, overpass, pdok_locatie, politie, rivm_geluid, rivm_lki, rvo_ep, verkiezingen
 
 
 def _as_ref(r) -> Optional[dict]:
@@ -82,6 +82,7 @@ class ScanResult:
     leefkwaliteit: dict  # Sectie 5
     klimaat: dict  # Sectie 6
     onderwijs: dict  # Sectie 7 — kinderopvang + scholen + inspectie
+    bereikbaarheid: dict  # Sectie 8 — OV + auto
     sociale_vragen: list[dict]  # 3 menselijke vragen (post-processing)
     provenance: list[dict]  # bronvermelding per sectie voor UI-tags
 
@@ -137,8 +138,9 @@ async def scan(query: str) -> ScanResult:
     )
     leef_task = _cached_fetch_leefbaarheid(match.rd_x, match.rd_y)
     geluid_task = _cached_fetch_geluid(match.rd_x, match.rd_y)
-    lucht, klimaatrisico, leefbaarheid, geluid = await asyncio.gather(
-        lucht_task, klimaat_task, leef_task, geluid_task
+    bereik_task = _cached_fetch_bereikbaarheid(match.lat, match.lon)
+    lucht, klimaatrisico, leefbaarheid, geluid, bereik = await asyncio.gather(
+        lucht_task, klimaat_task, leef_task, geluid_task, bereik_task
     )
 
     # Buurtnaam uit Leefbaarometer: handig voor het adres-kopje
@@ -171,6 +173,7 @@ async def scan(query: str) -> ScanResult:
         leefkwaliteit=_build_leefkwaliteit(lucht, geluid),
         klimaat=_build_klimaat(klimaatrisico),
         onderwijs=_build_onderwijs(match.lat, match.lon),
+        bereikbaarheid=_build_bereikbaarheid(bereik),
         sociale_vragen=[],  # gevuld in result_as_dict na serialisatie
         provenance=_provenance(match.buurtcode or ""),
     )
@@ -297,6 +300,29 @@ async def fetch_voorzieningen(
     osm_pois, cbs_voorz = await asyncio.gather(osm_task, cbs_task)
     merged = _merge_voorzieningen(osm_pois, cbs_voorz)
     return _build_voorzieningen(merged)
+
+
+async def _cached_fetch_bereikbaarheid(
+    lat: float, lon: float
+) -> Optional[bereikbaarheid.Bereikbaarheid]:
+    """Bereikbaarheid via Overpass (OV-halten + route-relations).
+
+    Dezelfde cachestrategie als andere Overpass-calls: coord-100m grid,
+    7 dagen TTL (halten verhuizen zelden, routes veranderen af en toe).
+    """
+    if not (lat and lon):
+        return None
+    key = f"bereik:{round(lat * 1000)}_{round(lon * 1000)}"
+    hit = _cache_get(key, _OSM_TTL_S)
+    if isinstance(hit, bereikbaarheid.Bereikbaarheid):
+        return hit
+    try:
+        result = await bereikbaarheid.fetch_bereikbaarheid(lat, lon)
+    except Exception:
+        return None
+    if result is not None:
+        _cache_set(key, result)
+    return result
 
 
 async def _cached_fetch_overpass(lat: float, lon: float) -> list[overpass.POI]:
@@ -1289,6 +1315,44 @@ def _build_klimaat(k: Optional[klimaat.Klimaatrisico]) -> dict:
     return out
 
 
+def _build_bereikbaarheid(
+    b: Optional["bereikbaarheid.Bereikbaarheid"],  # type: ignore[name-defined]
+) -> dict:
+    """Sectie 8 — OV + auto-ontsluiting.
+
+    OSM-data voor NL OV-routes is niet 100% compleet; lijn-aantallen zijn
+    een onderkant (kan meer zijn in werkelijkheid). Dat vermelden we in
+    de UI via de hint.
+    """
+    if b is None:
+        return {"available": False}
+
+    def _halte_to_dict(h) -> Optional[dict]:
+        if h is None:
+            return None
+        return {
+            "naam": h.naam,
+            "type": h.type,
+            "meters": h.meters,
+            "lijnen": h.lijnen or [],
+            "aantal_lijnen": len(h.lijnen or []),
+        }
+
+    # Heeft deze locatie überhaupt OV-ontsluiting?
+    has_ov = any([b.trein, b.metro, b.tram, b.bus])
+    return {
+        "available": has_ov or bool(b.snelweg_oprit_meters),
+        "trein": _halte_to_dict(b.trein),
+        "metro": _halte_to_dict(b.metro),
+        "tram": _halte_to_dict(b.tram),
+        "bus": _halte_to_dict(b.bus),
+        "snelweg": {
+            "meters": b.snelweg_oprit_meters,
+            "naam": b.snelweg_oprit_naam,
+        } if b.snelweg_oprit_meters else None,
+    }
+
+
 def _build_onderwijs(lat: float, lon: float) -> dict:
     """Sectie 7 — kinderopvang + scholen binnen 1.5 km.
 
@@ -1383,6 +1447,11 @@ def _provenance(buurtcode: str) -> list[dict]:
             "section": "onderwijs",
             "source": "LRK (kinderopvang) + DUO (basisscholen) + Onderwijsinspectie",
             "peildatum": "maandelijkse sync — bronnen actueel",
+        },
+        {
+            "section": "bereikbaarheid",
+            "source": "OpenStreetMap route-relations via Overpass API",
+            "peildatum": "OSM realtime — community data",
         },
     ]
 

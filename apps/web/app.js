@@ -289,6 +289,9 @@ function render(d) {
   // Sectie 7: kinderen & onderwijs
   renderOnderwijs(d.onderwijs);
 
+  // Sectie 8: bereikbaarheid
+  renderBereikbaarheid(d.bereikbaarheid);
+
   // Provenance
   const provs = d.provenance || [];
   setText('p-woning', findProv(provs, 'woning'));
@@ -297,6 +300,7 @@ function render(d) {
   setText('p-lucht', findProv(provs, 'leefkwaliteit'));
   setText('p-klimaat', findProv(provs, 'klimaat'));
   setText('p-onderwijs', findProv(provs, 'onderwijs'));
+  setText('p-bereikbaarheid', findProv(provs, 'bereikbaarheid'));
 
   $result.hidden = false;
 }
@@ -566,6 +570,67 @@ function renderOnderwijs(o) {
 function formatMeters(m) {
   if (m == null) return '—';
   return m < 1000 ? `${m} m` : `${(m / 1000).toFixed(1)} km`;
+}
+
+// ---- Sectie 8 · Bereikbaarheid (OV-halten + route-tellingen) ----
+// OSM-data voor NL OV-routes is niet compleet — lijnen-aantallen zijn
+// ondergrens. Als 0: geen zichtbare lijn-info, wel naam + afstand.
+function renderBereikbaarheid(b) {
+  const section = document.getElementById('s-bereikbaarheid');
+  const host = document.getElementById('s-bereikbaarheid-content');
+  if (!section || !host) return;
+  if (!b || b.available === false) { section.hidden = true; return; }
+
+  const rows = [];
+  // OV per modaliteit
+  const ov = [
+    { key: 'trein', icoon: '🚆', label: 'Treinstation' },
+    { key: 'metro', icoon: '🚇', label: 'Metro' },
+    { key: 'tram',  icoon: '🚋', label: 'Tram' },
+    { key: 'bus',   icoon: '🚌', label: 'Bus' },
+  ];
+  for (const o of ov) {
+    const h = b[o.key];
+    if (!h) continue;
+    const lijnenStr = (h.lijnen && h.lijnen.length)
+      ? `<span class="bereik-lijnen">${h.lijnen.slice(0, 12).map(l => `<span class="bereik-lijn">${escape(String(l))}</span>`).join(' ')}${h.lijnen.length > 12 ? ` <span class="muted small">+${h.lijnen.length - 12}</span>` : ''}</span>`
+      : '';
+    rows.push(`
+      <li class="bereik-item">
+        <span class="bereik-icoon">${o.icoon}</span>
+        <span class="bereik-main">
+          <span class="bereik-naam">${escape(h.naam || o.label)}</span>
+          <span class="bereik-sub">${escape(o.label)}${lijnenStr ? ' · ' + lijnenStr : ''}</span>
+        </span>
+        <span class="bereik-dist">${formatMeters(h.meters)}</span>
+      </li>
+    `);
+  }
+  // Auto — dichtstbijzijnde snelweg-oprit
+  if (b.snelweg) {
+    rows.push(`
+      <li class="bereik-item">
+        <span class="bereik-icoon">🛣️</span>
+        <span class="bereik-main">
+          <span class="bereik-naam">Oprit snelweg${b.snelweg.naam ? ' — ' + escape(b.snelweg.naam) : ''}</span>
+          <span class="bereik-sub">Auto-ontsluiting</span>
+        </span>
+        <span class="bereik-dist">${formatMeters(b.snelweg.meters)}</span>
+      </li>
+    `);
+  }
+  if (rows.length === 0) {
+    host.innerHTML = '<p class="muted small">Geen OV-halten of snelwegopritten binnen loop-/fietsafstand gevonden.</p>';
+    section.hidden = false;
+    return;
+  }
+  host.innerHTML = `
+    <ul class="bereik-list">${rows.join('')}</ul>
+    <p class="hint">Lijn-info via OpenStreetMap; voor Nederland niet altijd volledig.
+      Echt aantal lijnen is meestal gelijk of hoger. Reistijd naar bestemmingen vraagt
+      realtime OV-routing (niet meegenomen in dit MVP).</p>
+  `;
+  section.hidden = false;
 }
 
 // ---- Sectie 6 · Klimaatrisico (bodem-aware) ----

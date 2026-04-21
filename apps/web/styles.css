@@ -1086,6 +1086,50 @@ main {
   .onderwijs-sub { font-size: 0.72rem; }
 }
 
+/* Sectie 8: Bereikbaarheid — OV-halten + lijn-chips + snelweg */
+.bereik-list { list-style: none; padding: 0; margin: 0 0 0.5rem; }
+.bereik-item {
+  display: grid;
+  grid-template-columns: 28px 1fr 72px;
+  gap: 0.8rem;
+  align-items: center;
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+.bereik-item:first-child { border-top: none; }
+.bereik-icoon { font-size: 1.15rem; text-align: center; }
+.bereik-main { display: flex; flex-direction: column; min-width: 0; gap: 0.2rem; }
+.bereik-naam { color: var(--ink); font-weight: 500; }
+.bereik-sub {
+  font-size: 0.78rem;
+  color: var(--muted);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem;
+}
+.bereik-dist {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+.bereik-lijnen { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
+.bereik-lijn {
+  display: inline-block;
+  padding: 0.05rem 0.45rem;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 560px) {
+  .bereik-item { grid-template-columns: 24px 1fr 56px; gap: 0.5rem; font-size: 0.86rem; }
+  .bereik-sub { font-size: 0.72rem; }
+}
+
 /* Klimaat-sectie: bodemtype-header boven de risico-grid */
 .klimaat-bodem {
   font-size: 0.82rem;
