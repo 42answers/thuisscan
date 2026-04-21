@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from adapters import pdok_locatie
+from adapters import bag, pdok_locatie
 import orchestrator
 
 app = FastAPI(
@@ -130,6 +130,22 @@ async def scan_endpoint(q: str = Query(..., min_length=3, description="Adres")) 
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Scan faalde: {e}") from e
     return orchestrator.result_as_dict(result)
+
+
+@app.get("/pand-geometry")
+async def pand_geometry(pand_id: str = Query(..., min_length=10)) -> dict:
+    """GeoJSON-geometrie van een BAG-pand (voor kaart-overlay).
+
+    Aparte endpoint zodat de frontend deze pas ophaalt als de kaart
+    daadwerkelijk gerenderd wordt — bespaart 1 WFS-call op elk /scan.
+    """
+    try:
+        geom = await bag.fetch_pand_geometry(pand_id)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"BAG fout: {e}") from e
+    if geom is None:
+        raise HTTPException(status_code=404, detail="Pand niet gevonden")
+    return {"pand_id": pand_id, "geometry": geom}
 
 
 # ---------------------------------------------------------------------------

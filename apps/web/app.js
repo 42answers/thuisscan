@@ -141,6 +141,13 @@ function fieldEmpty(label) {
 // ---- Render ----
 function render(d) {
   setText('r-address', d.adres.display_name || '—');
+
+  // Kaart + externe viewers (#11)
+  renderMap(d);
+
+  // Sociale betekenis-laag (#15): 3 menselijke vragen met verdict
+  renderVragen(d.sociale_vragen || []);
+
   // Buurtnaam tonen als beschikbaar — veel begrijpelijker dan de CBS-code.
   // De code blijft in kleine grijze tag voor volledigheid.
   const buurtText = d.adres.buurt_naam
@@ -316,6 +323,124 @@ function renderTrend(woz) {
     ? `<span class="spark">${series.map(p => `<span title="${p.year}: ${formatEuro(p.woz_eur)}">${p.year}: ${formatEuro(p.woz_eur)}</span>`).join(' → ')}</span>`
     : '';
   return `<span class="trend-chip trend-${color}">${arrow} ${pct > 0 ? '+' : ''}${pct}% per jaar</span> ${sparkline}`;
+}
+
+// ---- Kaart (MapLibre GL) + externe viewer-links ----
+// Gebruikt PDOK BRT Achtergrondkaart als gratis basiskaart (geen API-key).
+// Pand-polygoon wordt per request uit de BAG WFS opgehaald en als overlay
+// getekend. Externe viewers (Google Street View, Satelliet, BAG-viewer) staan
+// rechts onder de kaart — zodat de user zelf kan inzoomen op details die we
+// niet zelf kunnen tekenen (3D gebouwen, foto's).
+
+let _map = null;
+async function renderMap(d) {
+  const el = document.getElementById('s-map');
+  if (!el || !d.adres || !d.adres.wgs84) return;
+  const { lat, lon } = d.adres.wgs84;
+  if (!lat || !lon) { el.hidden = true; return; }
+  el.hidden = false;
+
+  // Externe viewer-links (altijd beschikbaar, werken zonder key)
+  document.getElementById('m-streetview').href =
+    `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lon}`;
+  document.getElementById('m-satelliet').href =
+    `https://www.google.com/maps/@${lat},${lon},19z/data=!3m1!1e3`;
+  document.getElementById('m-bag3d').href =
+    `https://bagviewer.kadaster.nl/lvbag/bag-viewer/index.html#?searchQuery=${encodeURIComponent(d.adres.display_name)}`;
+
+  // Wacht tot MapLibre geladen is (script had `defer`)
+  if (typeof maplibregl === 'undefined') {
+    setTimeout(() => renderMap(d), 200);
+    return;
+  }
+
+  if (!_map) {
+    _map = new maplibregl.Map({
+      container: 'map',
+      // PDOK-BRT als vector style — gratis, NL-optimized, geen key
+      style: 'https://api.pdok.nl/kadaster/achtergrondkaarten/styles/v2_0/BRT.json',
+      center: [lon, lat],
+      zoom: 17,
+      attributionControl: { compact: true },
+    });
+    _map.addControl(new maplibregl.NavigationControl({ showCompass: false }));
+  } else {
+    _map.flyTo({ center: [lon, lat], zoom: 17, duration: 400 });
+  }
+
+  // Verwijder oude marker/polygoon voordat we nieuwe toevoegen
+  if (window._mapMarker) window._mapMarker.remove();
+  window._mapMarker = new maplibregl.Marker({ color: '#2a6b5e' })
+    .setLngLat([lon, lat])
+    .addTo(_map);
+
+  // Optioneel: BAG pand-polygoon ophalen via onze backend (zie orchestrator)
+  const pandId = (d.woning && d.woning.bag_pand_id) || null;
+  if (pandId) loadPandPolygon(pandId);
+}
+
+async function loadPandPolygon(pandId) {
+  try {
+    const r = await fetch(`${API_BASE}/pand-geometry?pand_id=${pandId}`);
+    if (!r.ok) return;
+    const gj = await r.json();
+    if (!gj || !gj.geometry) return;
+
+    // Verwijder vorige layer + source
+    if (_map.getLayer('pand-fill')) _map.removeLayer('pand-fill');
+    if (_map.getLayer('pand-line')) _map.removeLayer('pand-line');
+    if (_map.getSource('pand')) _map.removeSource('pand');
+
+    _map.addSource('pand', {
+      type: 'geojson',
+      data: { type: 'Feature', geometry: gj.geometry, properties: {} },
+    });
+    _map.addLayer({
+      id: 'pand-fill', type: 'fill', source: 'pand',
+      paint: { 'fill-color': '#2a6b5e', 'fill-opacity': 0.35 },
+    });
+    _map.addLayer({
+      id: 'pand-line', type: 'line', source: 'pand',
+      paint: { 'line-color': '#1a5346', 'line-width': 2 },
+    });
+  } catch (_) { /* stille fout: kaart werkt zonder polygoon ook */ }
+}
+
+// ---- Sociale betekenis-laag: 3 menselijke vragen ----
+function renderVragen(vragen) {
+  const el = document.getElementById('s-vragen');
+  if (!el) return;
+  if (!vragen.length) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = vragen.map(v => renderVraag(v)).join('');
+}
+
+function renderVraag(v) {
+  const icon = escape(v.icoon || '•');
+  const verdictClass = `vraag-${v.verdict || 'neutral'}`;
+  const scoreLabel = escape(v.score_label || '');
+  const vraag = escape(v.vraag || '');
+  const samenvatting = escape(v.samenvatting || '');
+  const factoren = (v.factoren || []).map(f => {
+    const lvl = f.level || 'neutral';
+    const dot = lvl === 'good' ? '↑' : lvl === 'warn' ? '↓' : '→';
+    return `<li class="vraag-factor vf-${lvl}">
+      <span class="vf-arrow">${dot}</span>
+      <span class="vf-label">${escape(f.label)}</span>
+      <span class="vf-value">${escape(f.value_text)}</span>
+    </li>`;
+  }).join('');
+  return `
+    <article class="vraag-card ${verdictClass}">
+      <header class="vraag-header">
+        <span class="vraag-icoon">${icon}</span>
+        <h3 class="vraag-title">${vraag}</h3>
+        <span class="vraag-badge">${scoreLabel}</span>
+      </header>
+      <p class="vraag-sam">${samenvatting}</p>
+      <ul class="vraag-factoren">${factoren}</ul>
+    </article>
+  `;
 }
 
 // ---- Cover: Leefbaarometer totaal-score + 5 sub-dimensies ----

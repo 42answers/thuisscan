@@ -23,6 +23,7 @@ from dataclasses import asdict, dataclass
 from typing import Optional
 
 import references
+import social_questions
 from adapters import bag, cbs, kadaster_woz, klimaat, leefbaarometer, pdok_locatie, politie, rivm_geluid, rivm_lki, rvo_ep, verkiezingen
 
 
@@ -79,6 +80,7 @@ class ScanResult:
     veiligheid: dict  # Sectie 4
     leefkwaliteit: dict  # Sectie 5
     klimaat: dict  # Sectie 6
+    sociale_vragen: list[dict]  # 3 menselijke vragen (post-processing)
     provenance: list[dict]  # bronvermelding per sectie voor UI-tags
 
 
@@ -156,6 +158,7 @@ async def scan(query: str) -> ScanResult:
         veiligheid=_build_veiligheid(misdrijven),
         leefkwaliteit=_build_leefkwaliteit(lucht, geluid),
         klimaat=_build_klimaat(klimaatrisico),
+        sociale_vragen=[],  # gevuld in result_as_dict na serialisatie
         provenance=_provenance(match.buurtcode or ""),
     )
 
@@ -841,4 +844,9 @@ def _provenance(buurtcode: str) -> list[dict]:
 
 
 def result_as_dict(r: ScanResult) -> dict:
-    return asdict(r)
+    """Serialize + bouw de sociale vragen (post-processing over alle secties)."""
+    data = asdict(r)
+    # Sociale vragen hergebruiken de reeds-opgebouwde dicts — doen we hier
+    # zodat de vragen-module niet af hoeft te weten van de dataclass-structuur.
+    data["sociale_vragen"] = social_questions.build(data)
+    return data

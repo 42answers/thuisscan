@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Thuisscan — Eén blik op je woning en buurt</title>
   <link rel="stylesheet" href="styles.css" />
+  <!-- MapLibre GL JS voor de kaart (zelfde API als Mapbox, gratis, geen key) -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.5.0/dist/maplibre-gl.css" />
+  <script src="https://unpkg.com/maplibre-gl@4.5.0/dist/maplibre-gl.js" defer></script>
 </head>
 <body>
   <header class="hero">
@@ -28,6 +31,19 @@
       <h2 id="r-address"></h2>
       <p class="muted" id="r-codes"></p>
     </div>
+
+    <!-- Kaart + pand-outline (links naar Street View) -->
+    <section class="mapcard" id="s-map" hidden>
+      <div id="map"></div>
+      <div class="map-actions">
+        <a id="m-streetview" class="map-btn" target="_blank" rel="noopener">📷 Street View</a>
+        <a id="m-satelliet" class="map-btn" target="_blank" rel="noopener">🛰️ Satelliet</a>
+        <a id="m-bag3d" class="map-btn" target="_blank" rel="noopener">🏢 3D BAG-viewer</a>
+      </div>
+    </section>
+
+    <!-- Sociale betekenis-laag: 3 menselijke vragen -->
+    <section class="vragen" id="s-vragen"></section>
 
     <!-- Cover: Leefbaarometer-score -->
     <section class="cover" id="s-cover" hidden>

@@ -116,6 +116,41 @@ async def fetch_pand(verblijfsobject_id: str) -> PandDetails:
     )
 
 
+async def fetch_pand_geometry(pand_id: str) -> Optional[dict]:
+    """Haal de GeoJSON-geometrie op van een pand voor kaart-overlay.
+
+    Retourneert WGS84-GeoJSON Geometry (Polygon / MultiPolygon) zodat
+    MapLibre het direct kan tekenen — geen client-side herprojectie nodig.
+    """
+    if not pand_id:
+        return None
+    ogc_filter = (
+        "<Filter>"
+        "<PropertyIsEqualTo>"
+        "<PropertyName>identificatie</PropertyName>"
+        f"<Literal>{pand_id}</Literal>"
+        "</PropertyIsEqualTo>"
+        "</Filter>"
+    )
+    params = {
+        "service": "WFS",
+        "version": "2.0.0",
+        "request": "GetFeature",
+        "typeNames": "bag:pand",
+        "outputFormat": "application/json",
+        "srsName": "EPSG:4326",  # WGS84 direct, geen RD->WGS conversie nodig
+        "filter": ogc_filter,
+    }
+    async with httpx.AsyncClient(timeout=TIMEOUT_S) as client:
+        resp = await client.get(WFS_URL, params=params)
+        resp.raise_for_status()
+        data = resp.json()
+    feats = data.get("features", [])
+    if not feats:
+        return None
+    return feats[0].get("geometry")
+
+
 async def _get_feature(
     client: httpx.AsyncClient, type_name: str, identificatie: str
 ) -> Optional[dict]:
