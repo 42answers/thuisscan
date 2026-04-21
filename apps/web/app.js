@@ -29,7 +29,9 @@ let currentCandidates = [];
 $q.addEventListener('input', () => {
   clearTimeout(suggestTimer);
   const q = $q.value.trim();
-  if (q.length < 3) { hideSuggestions(); return; }
+  // Vanaf 2 chars suggesties tonen (PDOK accepteert al vanaf 1;
+  // 2 is snelste balance tussen UX en zinvolle hits)
+  if (q.length < 2) { hideSuggestions(); return; }
   suggestTimer = setTimeout(() => fetchSuggestions(q), 180);
 });
 
