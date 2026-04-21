@@ -80,10 +80,11 @@ GROTE_WERKCENTRA = [
 
 @dataclass
 class Werkcentrum:
-    """Afstand tot een intercity-station / werkcentrum."""
+    """Afstand + OV-reistijd-schatting naar een intercity-station."""
     stad: str
     station: str
     km: float        # hemelsbrede afstand, afgerond
+    ov_min: int      # ruwe OV-reistijd in minuten (schatting)
 
 
 @dataclass
@@ -250,8 +251,12 @@ async def fetch_bereikbaarheid(lat: float, lon: float) -> Bereikbaarheid:
         result.snelweg_oprit_naam = nm
 
     # Top-3 werkcentra op hemelsbrede afstand (lokaal, geen extra API-call).
-    # Tonen de drie dichtstbijzijnde grote steden om 'afstand tot werk-NL'
-    # te karakteriseren. Geen reistijd-claim — alleen afstand.
+    # Plus een RUWE OV-reistijdschatting op basis van NL-kenmerken:
+    #   - Lokaal OV (tram/bus, <5 km): ~18 km/h gem = 3.3 min/km
+    #   - Stedelijk + overstap (5-20 km): ~22 km/h gem = 2.7 min/km
+    #   - Intercity (>20 km): ~55 km/h gem = 1.1 min/km, +10 min voor
+    #     overstap + lopen naar/van station
+    # Geen echte routing — voor exacte reistijd verwijzen we naar 9292.
     wc_ranked = sorted(
         (
             (stad, station, _haversine_m(lat, lon, clat, clon) / 1000.0)
@@ -260,11 +265,36 @@ async def fetch_bereikbaarheid(lat: float, lon: float) -> Bereikbaarheid:
         key=lambda x: x[2],
     )
     result.werkcentra = [
-        Werkcentrum(stad=s, station=st, km=round(km, 1))
+        Werkcentrum(
+            stad=s,
+            station=st,
+            km=round(km, 1),
+            ov_min=_schat_ov_min(km),
+        )
         for s, st, km in wc_ranked[:3]
     ]
 
     return result
+
+
+def _schat_ov_min(km: float) -> int:
+    """Ruwe schatting van reistijd met OV in minuten.
+
+    Gebaseerd op gemiddelde-snelheid-heuristiek per afstandsklasse:
+      <5 km   : lokaal OV (18 km/h), geen overstap
+      5-20 km : stedelijk + overstap (22 km/h) + 5 min overstap-opslag
+      >20 km  : intercity (55 km/h) + 10 min heen-&-weer naar station
+
+    NL-realiteit: Amsterdam Zuid → Utrecht CS (35 km) ≈ 28 min IC + 15 min
+    lopen/fietsen = 43 min totaal. Onze schatting: 35 / 55 * 60 + 10 = 48 min.
+    Realistisch binnen ±15%.
+    """
+    if km < 5:
+        return round(km * 3.3)
+    if km < 20:
+        return round(km * 2.7 + 5)
+    # >20 km: intercity-route
+    return round(km / 55 * 60 + 10)
 
 
 def _line_matches_cat(route_type: str, cat: str) -> bool:

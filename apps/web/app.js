@@ -619,23 +619,25 @@ function renderBereikbaarheid(b) {
       </li>
     `);
   }
-  // Grote werkcentra (hemelsbrede afstand) — eigen blok onderaan
+  // Grote werkcentra met geschatte OV-reistijd
   let werkHTML = '';
   if (b.werkcentra && b.werkcentra.length) {
-    const wcRows = b.werkcentra.map(w => `
-      <li class="bereik-werkcentrum">
+    const wcRows = b.werkcentra.map(w => {
+      const tijd = w.ov_min != null ? `~${w.ov_min} min OV` : '';
+      return `
+      <li class="bereik-item">
         <span class="bereik-icoon">🏙️</span>
         <span class="bereik-main">
           <span class="bereik-naam">${escape(w.stad)}</span>
-          <span class="bereik-sub">${escape(w.station)}</span>
+          <span class="bereik-sub">${escape(w.station)}${tijd ? ' · ' + tijd : ''}</span>
         </span>
         <span class="bereik-dist">${w.km} km</span>
       </li>
-    `).join('');
+    `;
+    }).join('');
     werkHTML = `
       <h4 class="bereik-section-title">Afstand tot grote werkcentra</h4>
       <ul class="bereik-list">${wcRows}</ul>
-      <p class="hint">Hemelsbrede afstand tot dichtstbijzijnde intercity-stations — geen reistijd.</p>
     `;
   }
 
@@ -645,10 +647,7 @@ function renderBereikbaarheid(b) {
     return;
   }
   host.innerHTML = `
-    ${rows.length ? `<h4 class="bereik-section-title">Dichtstbijzijnde halten &amp; oprit</h4><ul class="bereik-list">${rows.join('')}</ul>
-    <p class="hint">Lijn-info via OpenStreetMap; voor Nederland niet altijd volledig.
-      Echt aantal lijnen is meestal gelijk of hoger. Reistijd naar bestemmingen vraagt
-      realtime OV-routing (niet meegenomen in dit MVP).</p>` : ''}
+    ${rows.length ? `<h4 class="bereik-section-title">Dichtstbijzijnde halten &amp; oprit</h4><ul class="bereik-list">${rows.join('')}</ul>` : ''}
     ${werkHTML}
   `;
   section.hidden = false;

@@ -1341,7 +1341,7 @@ def _build_bereikbaarheid(
     # Heeft deze locatie überhaupt OV-ontsluiting?
     has_ov = any([b.trein, b.metro, b.tram, b.bus])
     werkcentra = [
-        {"stad": w.stad, "station": w.station, "km": w.km}
+        {"stad": w.stad, "station": w.station, "km": w.km, "ov_min": w.ov_min}
         for w in (b.werkcentra or [])
     ]
     return {
@@ -1455,8 +1455,8 @@ def _provenance(buurtcode: str) -> list[dict]:
         },
         {
             "section": "bereikbaarheid",
-            "source": "OpenStreetMap route-relations via Overpass API",
-            "peildatum": "OSM realtime — community data",
+            "source": "OpenStreetMap route-relations (Overpass) · OV-reistijd schatting uit afstand (geen routing-API)",
+            "peildatum": "OSM realtime",
         },
     ]
 
