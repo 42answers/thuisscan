@@ -4,11 +4,11 @@
 // consistent blok van: grote waarde + chip + referentieregel + betekenis-zin.
 
 // API_BASE resolve-volgorde:
-//   1. window.THUISSCAN_API_BASE (uit config.js, overrijdbaar op Netlify)
-//   2. leeg = same-origin (FastAPI servt de frontend zelf, lokaal)
-//   3. localhost fallback voor dev
+//   1. Als config.js hem expliciet heeft gezet (ook een lege string!) → die gebruiken
+//      (lege string = same-origin, wat klopt voor zowel lokaal als productie)
+//   2. Alleen als config.js helemaal niet geladen is → localhost-fallback voor dev
 const API_BASE =
-  (typeof window.THUISSCAN_API_BASE === 'string' && window.THUISSCAN_API_BASE)
+  typeof window.THUISSCAN_API_BASE === 'string'
     ? window.THUISSCAN_API_BASE
     : window.location.origin.startsWith('http://localhost:87')
     ? ''
