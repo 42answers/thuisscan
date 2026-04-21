@@ -497,10 +497,17 @@ function renderKlimaatRisk(r) {
   // Compose "waarde" text: pct / klasse X/5 / waarde + eenheid
   let display = '—';
   if (r.pct != null) display = `${r.pct}%`;
-  else if (r.klasse != null) display = `klasse ${r.klasse}/5`;
+  else if (r.klasse != null) {
+    // Klasse 0 = expliciet 'geen risico' (bv. overstroming bij NoData)
+    // — toon als 'geen' i.p.v. verwarrend 'klasse 0/5'.
+    display = r.klasse === 0 ? 'geen' : `klasse ${r.klasse}/5`;
+  }
   else if (r.waarde != null && r.eenheid) {
-    // Bij overstromingsdiepte: ook meters tonen
-    if (r.key === 'overstroming_diepte' && r.waarde >= 100) {
+    // Waarde 0 = expliciet 'geen risico' (overstromingsdiepte NoData)
+    if (r.waarde === 0) {
+      display = 'geen';
+    } else if (r.key === 'overstroming_diepte' && r.waarde >= 100) {
+      // Bij overstromingsdiepte: ook meters tonen
       display = `${(r.waarde / 100).toFixed(1)} m`;
     } else {
       display = `${r.waarde} ${r.eenheid}`;

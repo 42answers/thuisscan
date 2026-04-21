@@ -1232,12 +1232,10 @@ def _build_klimaat(k: Optional[klimaat.Klimaatrisico]) -> dict:
         # Filter 2: skip bodemdaling < 1mm/jaar (praktisch geen signaal)
         if r.key == "bodemdaling" and (r.waarde or 0) < 1.0:
             continue
-        # Filter 3: skip overstroming klasse <2 (zeer laag = geen signaal)
-        if r.key == "overstroming" and (r.klasse or 0) < 2:
-            continue
-        # Filter 4: skip overstromingsdiepte < 10cm (te klein voor relevantie)
-        if r.key == "overstroming_diepte" and (r.waarde or 0) < 10:
-            continue
+        # Overstroming + overstromings-diepte: ALTIJD tonen, ook bij 0.
+        # Klasse=0 of waarde=0 betekenen expliciet 'geen risico' (achter dijk,
+        # hoger gelegen) — dat is zelf een waardevol antwoord voor de
+        # gebruiker die zich anders afvraagt of we überhaupt hebben gekeken.
 
         ref = _risico_ref(r)
         entry = {

@@ -317,8 +317,17 @@ def ref_overstromingsdiepte(cm: Optional[float]) -> Optional[Reference]:
       - ~15% NL: 0.5-2 m (diepere polders, sommige uiterwaarden)
       - ~5% NL: >2 m (diepe polders, Maas/IJssel uiterwaarden)
     """
-    if cm is None or cm <= 0:
+    if cm is None:
         return None
+    # 0 cm = expliciet 'geen risico' (NoData fallback voor beschermde locaties)
+    if cm <= 0:
+        return Reference(
+            chip_level="good",
+            chip_text="geen risico",
+            nl_gemiddelde="onder NL-gemiddelde (meeste NL <10 cm)",
+            norm="achter dijk of hoger gelegen",
+            betekenis="Geen noemenswaardige overstromingsdiepte bij rampscenario.",
+        )
     m = cm / 100
     if m < 0.1:
         level, chip, msg = "good", "droog", "Huis blijft praktisch droog."
