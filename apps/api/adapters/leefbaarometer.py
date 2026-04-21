@@ -30,6 +30,13 @@ WMS_URL = "https://geo.leefbaarometer.nl/wms"
 # uithoek binnen een gemiddelde buurt (of andersom).
 LAYER_GRID = "lbm3:clippedgridscore24"
 LAYER_BUURT = "lbm3:buurtscore24"
+# Trend-layers — zelfde 100m-grid, maar i.p.v. absolute score de ONTWIKKELING
+# (klasse 1-9; 1=sterk verslechterd, 5=geen verandering, 9=sterk verbeterd).
+# We halen een 2-jaars en 10-jaars variant — kort termijn zegt iets over de
+# huidige dynamiek (gentrification, verval), lang termijn over de structurele
+# baan van de buurt.
+LAYER_DEV_RECENT = "lbm3:clippedgridontwikkeling22_24"  # 2-jaars (2022→2024)
+LAYER_DEV_LANG = "lbm3:clippedgridontwikkeling14_24"    # 10-jaars (2014→2024)
 TIMEOUT_S = 4.0
 
 
@@ -40,6 +47,20 @@ class Dimensiescore:
     label: str     # menselijke naam
     score: int     # 1-9
     beschrijving: str  # wat valt er in deze dimensie
+
+
+@dataclass
+class Ontwikkeling:
+    """Leefbaarheids-trend over een periode (bv. 2014→2024).
+
+    Klasse-schaal 1-9: 1=sterk verslechterd, 5=geen verandering, 9=sterk verbeterd.
+    Raw continuous 'score' is de afwijking; negatief = achteruit, positief = vooruit.
+    """
+    periode: str                 # "2014-2024"
+    score: int                   # 1-9 totaal
+    label: str                   # "verbeterd" / "stabiel" / "verslechterd"
+    raw_delta: float             # continuous afwijking (positief=vooruit)
+    per_dimensie: dict           # {key: klasse} voor won/fys/vrz/soc/onv
 
 
 @dataclass
@@ -64,6 +85,9 @@ class LeefbaarheidScore:
     buurt_score: Optional[int] = None
     buurt_label: Optional[str] = None
     buurt_naam: Optional[str] = None  # bv. "Oranjebuurt"
+    # Trends over tijd — key = periode-string, waarde = Ontwikkeling
+    ontwikkeling_recent: Optional[Ontwikkeling] = None  # 2 jaar
+    ontwikkeling_lang: Optional[Ontwikkeling] = None    # 10 jaar
 
 
 # Schaal 1-9 conform officiele Leefbaarometer-categorieën
@@ -93,15 +117,20 @@ import asyncio
 
 
 async def fetch_leefbaarheid(rd_x: float, rd_y: float) -> Optional[LeefbaarheidScore]:
-    """Haal grid-score (100m) + buurt-score parallel op.
+    """Haal grid-score (100m) + buurt-score + trends parallel op.
 
-    Twee WMS GetFeatureInfo-calls tegelijk; totale latency ≈ max van beide
-    (~200-300ms) in plaats van sum.
+    Vier WMS GetFeatureInfo-calls tegelijk; totale latency ≈ max van alle
+    (~200-400ms) in plaats van sum. De trends (2-jaar + 10-jaar) zijn
+    optioneel — als ze falen, valt de app terug op alleen de huidige score.
     """
     async with httpx.AsyncClient(timeout=TIMEOUT_S) as client:
         grid_task = _fetch_layer(client, LAYER_GRID, rd_x, rd_y)
         buurt_task = _fetch_layer(client, LAYER_BUURT, rd_x, rd_y)
-        grid_props, buurt_props = await asyncio.gather(grid_task, buurt_task)
+        dev_recent_task = _fetch_layer(client, LAYER_DEV_RECENT, rd_x, rd_y)
+        dev_lang_task = _fetch_layer(client, LAYER_DEV_LANG, rd_x, rd_y)
+        grid_props, buurt_props, dev_recent_props, dev_lang_props = await asyncio.gather(
+            grid_task, buurt_task, dev_recent_task, dev_lang_task
+        )
 
     if not grid_props:
         return None
@@ -137,6 +166,10 @@ async def fetch_leefbaarheid(rd_x: float, rd_y: float) -> Optional[LeefbaarheidS
         if isinstance(bn, str) and bn.strip():
             buurt_naam = bn.strip()
 
+    # Ontwikkeling (optioneel — faalt silently als WMS-layer niet beschikbaar)
+    ontw_recent = _parse_ontwikkeling(dev_recent_props, "2022-2024")
+    ontw_lang = _parse_ontwikkeling(dev_lang_props, "2014-2024")
+
     return LeefbaarheidScore(
         score=score,
         label=label,
@@ -146,6 +179,50 @@ async def fetch_leefbaarheid(rd_x: float, rd_y: float) -> Optional[LeefbaarheidS
         buurt_score=buurt_score,
         buurt_label=buurt_label,
         buurt_naam=buurt_naam,
+        ontwikkeling_recent=ontw_recent,
+        ontwikkeling_lang=ontw_lang,
+    )
+
+
+def _parse_ontwikkeling(props: Optional[dict], periode: str) -> Optional[Ontwikkeling]:
+    """Bouw een Ontwikkeling uit een ontwikkelings-grid properties-dict.
+
+    De ontwikkelings-layer gebruikt dezelfde 1-9 klasse als de score-layer,
+    maar hier betekent:
+      1 = sterk verslechterd
+      5 = geen verandering
+      9 = sterk verbeterd
+    Raw waarde 'score' is de continue afwijking (positief = vooruit).
+    """
+    if not props:
+        return None
+    klasse = _to_score(props.get("kscore"))
+    if klasse is None:
+        return None
+    # Continue waarde voor nuance (bv. +0.12 = lichte verbetering)
+    try:
+        raw = float(props.get("score")) if props.get("score") is not None else 0.0
+    except (TypeError, ValueError):
+        raw = 0.0
+    # Label-logica op basis van de 1-9 klasse
+    if klasse <= 3:
+        lab = "verslechterd"
+    elif klasse >= 7:
+        lab = "verbeterd"
+    else:
+        lab = "stabiel"
+    # Per-dimensie ontwikkeling (zelfde keys als de score-layer)
+    per_dim: dict = {}
+    for key, _naam, _beschr in DIMENSIES:
+        k = _to_score(props.get(f"k{key}"))
+        if k is not None:
+            per_dim[key] = k
+    return Ontwikkeling(
+        periode=periode,
+        score=klasse,
+        label=lab,
+        raw_delta=raw,
+        per_dimensie=per_dim,
     )
 
 

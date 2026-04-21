@@ -722,6 +722,9 @@ function renderCover(cover) {
 
   // 5 sub-dimensies als mini-balkjes + eventuele waarschuwing bij scheve spread.
   renderCoverDims(cover.dimensies || [], cover.waarschuwing);
+
+  // Trend-sectie: hoe ontwikkelt deze buurt zich? (2-jaar + 10-jaar)
+  renderCoverOntwikkeling(cover.ontwikkeling);
 }
 
 function renderHighlights(highlights) {
@@ -759,6 +762,58 @@ function renderCoverDims(dims, waarschuwing) {
     <div class="cover-dims-header">Opbouw van de score</div>
     <ul class="cover-dims-list">${rows}</ul>
     ${waarschHTML}
+  `;
+}
+
+// ---- Cover: ontwikkeling (trend over tijd) ----
+// Toont 2 blokken (recent 2-jaar + lange termijn 10-jaar), elk met een chip
+// (verbeterd/stabiel/verslechterd), de klasse op een 1-9 schaal, en de
+// dimensie die het meest is veranderd. Rendert in #cover-ontwikkeling;
+// dat element wordt dynamisch aan de cover toegevoegd als het nog niet bestaat.
+function renderCoverOntwikkeling(ontwikkeling) {
+  const cover = document.getElementById('s-cover');
+  if (!cover) return;
+  let host = document.getElementById('cover-ontwikkeling');
+  const hasData =
+    ontwikkeling && (ontwikkeling.recent || ontwikkeling.lang);
+  if (!hasData) { if (host) host.innerHTML = ''; return; }
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'cover-ontwikkeling';
+    host.className = 'cover-ontwikkeling';
+    // Invoegen vóór de provenance (laatste <p.prov> in s-cover)
+    const prov = cover.querySelector('.prov');
+    if (prov) cover.insertBefore(host, prov);
+    else cover.appendChild(host);
+  }
+
+  const blocks = [];
+  if (ontwikkeling.recent) blocks.push(ontwikkelingBlock(ontwikkeling.recent));
+  if (ontwikkeling.lang) blocks.push(ontwikkelingBlock(ontwikkeling.lang));
+
+  host.innerHTML = `
+    <div class="cover-dims-header">Hoe ontwikkelt deze buurt zich?</div>
+    <div class="trend-grid">${blocks.join('')}</div>
+  `;
+}
+
+function ontwikkelingBlock(o) {
+  const chipLevel = o.chip_level || 'neutral';
+  const arrow = o.klasse >= 7 ? '↑' : o.klasse <= 3 ? '↓' : '→';
+  const sub = o.sterkste_verandering
+    ? `<div class="trend-dim">${escape(o.sterkste_verandering.label)}: ${o.sterkste_verandering.richting}</div>`
+    : '';
+  return `
+    <div class="trend-block trend-${chipLevel}">
+      <div class="trend-head">
+        <span class="trend-arrow">${arrow}</span>
+        <span class="trend-horizon">${escape(o.horizon || o.periode || '')}</span>
+        <span class="trend-chip trend-chip-${chipLevel}">${escape(capitalize(o.label || ''))}</span>
+      </div>
+      <div class="trend-desc">${escape(o.beschrijving || '')}</div>
+      ${sub}
+      <div class="trend-period">${escape(o.periode || '')}</div>
+    </div>
   `;
 }
 

@@ -692,6 +692,10 @@ def _build_cover(l: Optional[leefbaarometer.LeefbaarheidScore]) -> dict:
                 f"{buurt_phrase} als geheel ({l.buurt_score}/9)."
             )
 
+    # Ontwikkeling (trend over tijd) — optioneel, beide perioden parallel
+    ontwikkeling_recent = _serialize_ontwikkeling(l.ontwikkeling_recent, "2 jaar")
+    ontwikkeling_lang = _serialize_ontwikkeling(l.ontwikkeling_lang, "10 jaar")
+
     return {
         "available": True,
         "score": l.score,
@@ -717,6 +721,87 @@ def _build_cover(l: Optional[leefbaarometer.LeefbaarheidScore]) -> dict:
                 "vs_totaal": _relatief_label(d.score, l.score),
             }
             for d in l.dimensies
+        ],
+        # Trends over tijd — de frontend rendert hiermee een compacte
+        # "hoe ontwikkelt deze buurt zich?"-sectie.
+        "ontwikkeling": {
+            "recent": ontwikkeling_recent,
+            "lang": ontwikkeling_lang,
+        },
+    }
+
+
+# Dimensie-labels hergebruiken voor de trend-weergave
+_DIM_LABELS = {key: label for key, label, _ in leefbaarometer.DIMENSIES}
+
+
+def _serialize_ontwikkeling(
+    o: Optional[leefbaarometer.Ontwikkeling], horizon_label: str
+) -> Optional[dict]:
+    """Serialiseer een Ontwikkeling naar UI-klaar dict.
+
+    - `chip_level` kleurt de chip rood/grijs/groen
+    - `beschrijving` is een menselijke duiding ("licht verbeterd",
+      "sterk verslechterd in fysieke omgeving", etc.)
+    - `sterkste_verandering` wijst de dimensie aan die het meest bijdraagt
+    """
+    if o is None:
+        return None
+    # Chip-niveau
+    if o.label == "verbeterd":
+        chip = "good"
+    elif o.label == "verslechterd":
+        chip = "warn"
+    else:
+        chip = "neutral"
+    # Sterkste verandering zoeken — dimensie die het verst van 5 (=stabiel) ligt
+    sterkste = None
+    if o.per_dimensie:
+        key, klasse = max(
+            o.per_dimensie.items(),
+            key=lambda kv: abs((kv[1] or 5) - 5),
+        )
+        if abs(klasse - 5) >= 2:
+            richting = "verbeterd" if klasse > 5 else "verslechterd"
+            sterkste = {
+                "key": key,
+                "label": _DIM_LABELS.get(key, key),
+                "klasse": klasse,
+                "richting": richting,
+            }
+    # Compacte menselijke beschrijving — geeft direct context
+    if o.score <= 2:
+        beschrijving = f"Sterk verslechterd over {horizon_label}."
+    elif o.score == 3:
+        beschrijving = f"Licht verslechterd over {horizon_label}."
+    elif o.score == 5:
+        beschrijving = f"Stabiel over {horizon_label}."
+    elif o.score <= 6:
+        beschrijving = f"Licht verbeterd over {horizon_label}."
+    elif o.score >= 8:
+        beschrijving = f"Sterk verbeterd over {horizon_label}."
+    else:
+        beschrijving = f"Verbeterd over {horizon_label}."
+    return {
+        "periode": o.periode,
+        "horizon": horizon_label,
+        "klasse": o.score,
+        "max": 9,
+        "label": o.label,
+        "chip_level": chip,
+        "raw_delta": o.raw_delta,
+        "beschrijving": beschrijving,
+        "sterkste_verandering": sterkste,
+        "per_dimensie": [
+            {
+                "key": k,
+                "label": _DIM_LABELS.get(k, k),
+                "klasse": v,
+                "richting": (
+                    "verbeterd" if v > 5 else "verslechterd" if v < 5 else "stabiel"
+                ),
+            }
+            for k, v in (o.per_dimensie or {}).items()
         ],
     }
 

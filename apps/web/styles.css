@@ -726,6 +726,85 @@ main {
   .dim-row { grid-template-columns: 110px 1fr 44px; font-size: 0.82rem; }
 }
 
+/* Trend / ontwikkeling — compacte 2-kolommen grid (recent + lange termijn) */
+.cover-ontwikkeling {
+  margin-top: 1.5rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--line);
+}
+.trend-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+  margin-top: 0.6rem;
+}
+.trend-block {
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line);
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  background: #fafaf8;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.trend-block.trend-good    { border-left-color: var(--strong); background: #f2faf5; }
+.trend-block.trend-warn    { border-left-color: var(--weak);   background: #fcf5f3; }
+.trend-block.trend-neutral { border-left-color: var(--accent); background: #fafaf8; }
+
+.trend-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  flex-wrap: wrap;
+}
+.trend-arrow {
+  font-size: 1.1rem;
+  line-height: 1;
+  font-weight: 700;
+}
+.trend-good .trend-arrow    { color: var(--strong); }
+.trend-warn .trend-arrow    { color: var(--weak); }
+.trend-neutral .trend-arrow { color: var(--muted); }
+
+.trend-horizon {
+  font-weight: 600;
+  color: var(--ink);
+}
+.trend-chip {
+  margin-left: auto;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+.trend-chip-good    { background: #dcefe0; color: #265a33; }
+.trend-chip-warn    { background: #f7dcd6; color: #7a2d1c; }
+.trend-chip-neutral { background: #ececea; color: #555; }
+
+.trend-desc {
+  font-size: 0.88rem;
+  color: var(--ink);
+  line-height: 1.4;
+}
+.trend-dim {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.trend-period {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 560px) {
+  .trend-grid { grid-template-columns: 1fr; }
+}
+
 /* Filter-chips voor voorzieningen */
 .voorz-filters {
   display: flex;
