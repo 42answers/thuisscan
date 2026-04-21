@@ -114,8 +114,13 @@ def main() -> int:
             conn = sqlite3.connect(tmp_path)
             try:
                 conn.executescript(SCHEMA_DDL)
+                # Memory-efficient: ~6 MB cache (ipv default 2000 pages * 4KB=8MB,
+                # groeit bij writes). Op low-RAM hosts (Fly 512 MB) is dit cruciaal;
+                # lokaal heeft het geen impact op snelheid.
                 conn.execute("PRAGMA journal_mode = OFF")
                 conn.execute("PRAGMA synchronous = OFF")
+                conn.execute("PRAGMA cache_size = -2000")  # 2 MB cache
+                conn.execute("PRAGMA temp_store = FILE")
                 _insert_rows(conn, rows)
                 conn.commit()
             finally:
@@ -166,7 +171,7 @@ def _insert_rows(conn: sqlite3.Connection, rows) -> None:
                 None,  # meta
             )
         )
-        if len(batch) >= 50_000:
+        if len(batch) >= 10_000:  # kleinere batches = lagere RAM piek
             _flush(conn, batch)
             count += len(batch)
             batch.clear()
