@@ -71,23 +71,23 @@ def main() -> int:
     if args.dry_run:
         return 0
 
-    # Stap 2: stream-download (~225 MB CSV ZIP, ~30 sec op fatsoenlijke verbinding)
-    print(f"Downloading (~225MB)...")
+    # Stap 2: stream-download naar disk (niet BytesIO) om low-RAM hosts
+    # niet te belasten. 225 MB op disk is goedkoper dan in RAM, en de
+    # zipfile kan dan streaming door de file heen lopen.
+    zip_path = OUT_PATH.parent.parent / "cache" / "ep_online_latest.zip"
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Downloading (~225MB) naar {zip_path}...")
     with httpx.stream("GET", url, timeout=600.0, follow_redirects=True) as resp:
         if resp.status_code != 200:
             print(f"HTTP {resp.status_code}: {resp.text[:500]}")
             return 1
-        buf = io.BytesIO()
-        for chunk in resp.iter_bytes():
-            buf.write(chunk)
+        with zip_path.open("wb") as f:
+            for chunk in resp.iter_bytes():
+                f.write(chunk)
+    print(f"  Download klaar: {zip_path.stat().st_size / 1e6:.0f} MB op disk")
 
-    # ZIP bevat 1 CSV van ~1.5 GB. We streamen (niet in memory laden!).
-    # Format (RVO v4):
-    #   regel 1: 'PublicatieDatum;<datum>'
-    #   regel 2: 'LaatstVerwerkteMutatievolgnummer;<nr>'
-    #   regel 3: kolom-header
-    #   regel 4+: data
-    with zipfile.ZipFile(buf) as z:
+    # Format (RVO v4): regel 1-2 metadata, regel 3 header, regel 4+ data
+    with zipfile.ZipFile(zip_path) as z:
         csv_name = next(
             (n for n in z.namelist() if n.lower().endswith(".csv")), None
         )
@@ -171,12 +171,16 @@ def _insert_rows(conn: sqlite3.Connection, rows) -> None:
                 None,  # meta
             )
         )
-        if len(batch) >= 10_000:  # kleinere batches = lagere RAM piek
+        if len(batch) >= 10_000:
             _flush(conn, batch)
             count += len(batch)
             batch.clear()
+            # Periodieke commit houdt SQLite-journal klein (cruciaal op low-RAM)
+            # + geeft regelmatige I/O zodat SSH-connection levend blijft.
+            if count % 100_000 == 0:
+                conn.commit()
             if count % 500_000 == 0:
-                print(f"  ... {count:,} rijen verwerkt")
+                print(f"  ... {count:,} rijen verwerkt", flush=True)
     if batch:
         _flush(conn, batch)
         count += len(batch)
