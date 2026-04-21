@@ -485,13 +485,11 @@ function renderKlimaat(k) {
     return;
   }
 
-  // Nieuwe flow: bodemtype als header + 2-kolom grid met relevante risico's
-  const bodemHeader = k.bodemtype_label
-    ? `<p class="klimaat-bodem">Bodemtype: <strong>${escape(k.bodemtype_label)}</strong> — we tonen alleen risico's die passen bij deze ondergrond</p>`
-    : '';
-
+  // Directe grid zonder bodemtype-header — de filter is achter de schermen
+  // logic, niet iets om aan de gebruiker uit te leggen. De relevante
+  // risico's verschijnen gewoon; irrelevante zijn er simpelweg niet.
   const cells = risks.map(r => renderKlimaatRisk(r)).filter(Boolean);
-  grid.innerHTML = `${bodemHeader}<div class="grid-2 klimaat-risks">${cells.join('')}</div>`;
+  grid.innerHTML = `<div class="grid-2 klimaat-risks">${cells.join('')}</div>`;
 }
 
 function renderKlimaatRisk(r) {

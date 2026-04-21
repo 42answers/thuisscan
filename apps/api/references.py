@@ -219,70 +219,60 @@ def ref_pm10(ug_m3: Optional[float]) -> Optional[Reference]:
 # ---------------------------------------------------------------------------
 
 def ref_paalrot(pct_sterk: Optional[float], pct_mild: Optional[float]) -> Optional[Reference]:
-    """Paalrot — uitdrogen van houten palen in veengrond.
-
-    Alleen écht relevant voor panden op houten palen in veen/klei-op-veen
-    gebieden (West-NL). Dat filter doet de orchestrator via bodemtype.
-    """
+    """Paalrot — uitdrogen van houten palen in veengrond."""
     if pct_sterk is None and pct_mild is None:
         return None
     pct = pct_sterk if pct_sterk is not None else (pct_mild or 0)
-    nl_gem = 15
     if pct == 0:
-        level, chip, msg = "good", "geen risico", "Stabiele ondergrond; geen houten palen in veen."
+        level, chip, msg = "good", "geen risico", "Geen houten palen in veen."
     elif pct < 10:
-        level, chip, msg = "good", "laag buurt-risico", "Enkele panden in buurt potentieel kwetsbaar."
+        level, chip, msg = "good", "laag", "Weinig panden kwetsbaar."
     elif pct < 40:
-        level, chip, msg = "warn", "boven NL-gemiddelde", (
-            "Laat bij aankoop of verbouwing funderingsinspectie overwegen — "
-            "paalrot is per pand moeilijk voorspelbaar."
+        level, chip, msg = "warn", "verhoogd", (
+            "Houten palen drogen uit door dalend grondwater — kans op "
+            "verzakking. Funderingsinspectie bij aankoop verstandig."
         )
     elif pct < 80:
-        level, chip, msg = "warn", "verhoogd buurt-risico", (
-            "Groot deel panden staat op houten palen die bij droogte kwetsbaar zijn. "
-            "Hypotheekverstrekkers kijken hier scherp naar. Herstel €40-100k per woning."
+        level, chip, msg = "warn", "hoog", (
+            "Veel panden op houten palen in veen. Uitdroging = verzakking. "
+            "Herstel €40-100k per woning."
         )
     else:
-        level, chip, msg = "warn", "zeer hoog buurt-risico", (
-            "Bijna alle panden staan op houten palen in uitdrogende veengrond. "
-            "Fundering-onderzoek + evt. herstel-reservering sterk aangeraden."
+        level, chip, msg = "warn", "zeer hoog", (
+            "Bijna alle panden op houten palen in uitdrogende veengrond. "
+            "Funderingsonderzoek sterk aangeraden."
         )
     return Reference(
         chip_level=level,
         chip_text=chip,
-        nl_gemiddelde=f"{nl_gem}%",
+        nl_gemiddelde="~15% (NL)",
         norm="bij sterk klimaatscenario 2050",
         betekenis=msg,
     )
 
 
 def ref_verschilzetting(pct: Optional[float]) -> Optional[Reference]:
-    """Verschilzetting — ongelijkmatige zakking op zand/klei-overgangen.
-
-    Belangrijker dan paalrot voor oostelijk NL (zand, keileem, rivierterrassen).
-    Scheuren in muren zijn typische schade. Herstel vergelijkbaar in kosten
-    met paalrot, maar mechanisme en preventie verschillen.
-    """
+    """Verschilzetting — ongelijkmatige zakking op zand/klei-overgangen."""
     if pct is None:
         return None
     if pct == 0:
-        level, chip, msg = "good", "geen risico", "Uniforme ondergrond; geen zettingsverschillen verwacht."
+        level, chip, msg = "good", "geen risico", "Stabiele ondergrond."
     elif pct < 10:
-        level, chip, msg = "good", "laag buurt-risico", "Weinig panden kwetsbaar voor ongelijkmatige zetting."
+        level, chip, msg = "good", "laag", "Weinig panden kwetsbaar."
     elif pct < 40:
-        level, chip, msg = "warn", "boven gemiddeld", (
-            "Deel van de buurt heeft zand/klei-overgangen. Let bij aankoop op scheuren "
-            "in gevels en zettingsindicatoren; bouwtechnisch onderzoek aan te raden."
+        level, chip, msg = "warn", "verhoogd", (
+            "Ondergrond zakt ongelijkmatig — kans op scheuren in muren "
+            "en scheve vloeren. Bouwtechnisch onderzoek bij aankoop."
         )
     elif pct < 80:
-        level, chip, msg = "warn", "verhoogd buurt-risico", (
-            "Groot deel van de panden kwetsbaar voor ongelijkmatige zetting. "
-            "Bij oudere woningen is funderingsinspectie belangrijk; herstel €30-80k."
+        level, chip, msg = "warn", "hoog", (
+            "Veel panden op onstabiele ondergrond die ongelijkmatig zakt. "
+            "Scheuren en verzakkingen komen voor. Herstel €30-80k."
         )
     else:
-        level, chip, msg = "warn", "zeer hoog buurt-risico", (
-            "Bijna alle panden op bodems met zakkingsverschillen. "
-            "Standaard onderzoek aan te raden; let op scheurvorming en deurklemmen."
+        level, chip, msg = "warn", "zeer hoog", (
+            "Bijna alle panden zakken ongelijkmatig door bodemverschillen. "
+            "Let op scheuren en klemmende deuren."
         )
     return Reference(
         chip_level=level,
@@ -294,73 +284,81 @@ def ref_verschilzetting(pct: Optional[float]) -> Optional[Reference]:
 
 
 def ref_overstromingskans(klasse: Optional[int]) -> Optional[Reference]:
-    """Plaatsgebonden overstromingskans (rivier/zee/dijkdoorbraak).
-
-    Klasse 1-5 uit Klimaateffectatlas. Relevant in rivier- en kustgebieden.
-    """
+    """Plaatsgebonden overstromingskans (rivier/zee/dijkdoorbraak)."""
     if klasse is None:
         return None
     teksten = {
-        1: ("good", "zeer laag", "Kans op overstroming is verwaarloosbaar; hoge grond of goed beschermde locatie."),
-        2: ("good", "laag", "Normale bescherming; overstroming extreem zeldzaam gebeurtenis."),
-        3: ("neutral", "middel", "Standaard dijk- of duinbescherming. Bij extreem weer is enige kans."),
-        4: ("warn", "verhoogd", (
-            "Risico in rivier-uiterwaard of laag polder. Check in opstalverzekering "
-            "expliciet de dekking van overstroming door regen/rivier."
-        )),
-        5: ("warn", "zeer hoog", (
-            "Hoogrisico-gebied (uiterwaard, zeedijk-voet of diepe polder). "
-            "Verzekering is vaak beperkt of vereist uitbreiding."
-        )),
+        1: ("good", "zeer laag", "Praktisch geen kans op overstroming."),
+        2: ("good", "laag", "Overstroming is een extreem zeldzaam scenario."),
+        3: ("neutral", "middel", "Gemiddeld voor NL; dijk- of duinbescherming volstaat."),
+        4: ("warn", "verhoogd", "Rivier-uiterwaard of laaggelegen polder. Check opstalverzekering."),
+        5: ("warn", "zeer hoog", "Hoogrisico-gebied; verzekering vaak beperkt."),
     }
     level, chip, msg = teksten.get(klasse, ("neutral", "onbekend", ""))
     return Reference(
         chip_level=level,
         chip_text=chip,
-        nl_gemiddelde="klasse 2-3 (meeste woningen)",
-        norm="1=zeer laag · 5=zeer hoog (CAS)",
+        nl_gemiddelde="klasse 2-3 voor meeste woningen",
+        norm="1=zeer laag · 5=zeer hoog",
         betekenis=msg,
     )
 
 
 def ref_overstromingsdiepte(cm: Optional[float]) -> Optional[Reference]:
-    """Maximale overstromingsdiepte bij rampscenario."""
+    """Maximale overstromingsdiepte bij rampscenario.
+
+    NL-context (CAS):
+      - ~60% van NL: <10 cm (geen risico, achter dijk/hoog)
+      - ~20% NL: 10-50 cm (ondiepe polders)
+      - ~15% NL: 0.5-2 m (diepere polders, sommige uiterwaarden)
+      - ~5% NL: >2 m (diepe polders, Maas/IJssel uiterwaarden)
+    """
     if cm is None or cm <= 0:
         return None
     m = cm / 100
     if m < 0.1:
-        level, chip, msg = "good", "droog bij rampscenario", "Minimale overstromingsdiepte — zelfs bij extreem scenario blijft het huis praktisch droog."
+        level, chip, msg = "good", "droog", "Huis blijft praktisch droog."
+        nl = "onder NL-gemiddelde (meeste NL <10 cm)"
     elif m < 0.5:
-        level, chip, msg = "neutral", "ondiepe overstroming", f"Maximaal ~{m:.1f} m water in rampscenario. Kruipruimte en tuin kwetsbaar; woning zelf meestal bespaard."
-    elif m < 2.0:
-        level, chip, msg = "warn", "middelhoge overstroming", f"Maximaal ~{m:.1f} m water. Begane grond onbewoonbaar bij ramp; aanzienlijke schade."
+        level, chip, msg = "neutral", "ondiep", (
+            f"Tot ~{m:.1f} m water op straat; woning meestal gespaard."
+        )
+        nl = "rond NL-gemiddelde voor lager gelegen gebied"
+    elif m < 1.5:
+        level, chip, msg = "warn", "middelhoog", (
+            f"Tot ~{m:.1f} m water. Begane grond onder water; flinke schade."
+        )
+        nl = "boven NL-gemiddelde (top ~25% diepste)"
     else:
-        level, chip, msg = "warn", "diepe overstroming", f"Tot ~{m:.1f} m water in rampscenario. Volledige begane grond verdwijnt onder water."
+        level, chip, msg = "warn", "diep", (
+            f"Tot ~{m:.1f} m water. Hele begane grond onder water."
+        )
+        nl = "ver boven NL-gemiddelde (top ~5% diepste)"
     return Reference(
         chip_level=level,
         chip_text=chip,
-        nl_gemiddelde=None,
-        norm="bij rampscenario — ≈1× per 1000-10.000 jaar",
+        nl_gemiddelde=nl,
+        norm="bij rampscenario",
         betekenis=msg,
     )
 
 
 def ref_droogtestress(klasse: Optional[int]) -> Optional[Reference]:
-    """Droogtestress-klasse 1-5 (genormaliseerd uit CAS 0-42 schaal)."""
+    """Droogtestress-klasse 1-5."""
     if klasse is None:
         return None
     teksten = {
-        1: ("good", "zeer laag", "Weinig droogtestress — voldoende grondwater, geen risico voor bomen of tuin."),
-        2: ("good", "laag", "Marginale droogte in extreme zomers; tuin en bomen blijven gezond."),
-        3: ("neutral", "middel", "Gemiddelde droogtestress. Tuin extra water geven in droge zomer; let op oude bomen."),
-        4: ("warn", "verhoogd", "Tuin en bomen kwetsbaar in droge zomers. Bij zandgrond ook kans op verzakkingsschade."),
-        5: ("warn", "zeer hoog", "Bodem droogt sterk uit bij hitte. Risico voor groen, oude bomen en funderingen op zand."),
+        1: ("good", "zeer laag", "Voldoende grondwater; tuin en bomen gezond."),
+        2: ("good", "laag", "Marginale droogte alleen in extreme zomers."),
+        3: ("neutral", "middel", "Tuin extra water geven in droge zomer."),
+        4: ("warn", "verhoogd", "Bomen en tuin kwetsbaar in droge zomers; op zand ook verzakkingsrisico."),
+        5: ("warn", "zeer hoog", "Bodem droogt sterk uit — schade aan groen en fundering mogelijk."),
     }
     level, chip, msg = teksten.get(klasse, ("neutral", "onbekend", ""))
     return Reference(
         chip_level=level,
         chip_text=chip,
-        nl_gemiddelde="klasse 2-3 (meeste gebieden)",
+        nl_gemiddelde="klasse 2-3 voor meeste gebieden",
         norm="1=zeer laag · 5=zeer hoog",
         betekenis=msg,
     )
@@ -371,20 +369,24 @@ def ref_bodemdaling(mm_per_jaar: Optional[float]) -> Optional[Reference]:
     if mm_per_jaar is None or mm_per_jaar <= 0:
         return None
     per_jaar = mm_per_jaar
-    per_10jr = per_jaar * 10
     if per_jaar < 1:
-        level, chip, msg = "good", "verwaarloosbaar", f"Bodem is stabiel (<1mm/jr)."
+        level, chip, msg = "good", "stabiel", "Geen noemenswaardige daling."
     elif per_jaar < 3:
-        level, chip, msg = "neutral", "licht", f"Bodem zakt ~{per_jaar:.1f}mm/jaar; merkbaar maar hanteerbaar op 30-50 jaar schaal."
+        level, chip, msg = "neutral", "licht", f"~{per_jaar:.1f} mm/jaar; merkbaar op lange termijn."
     elif per_jaar < 6:
-        level, chip, msg = "warn", "merkbaar", f"Bodem zakt ~{per_jaar:.1f}mm/jaar (~{per_10jr:.0f}cm/10jr). Funderingen + rioleringen onder druk."
+        level, chip, msg = "warn", "merkbaar", (
+            f"~{per_jaar:.1f} mm/jaar (~{per_jaar*10:.0f} cm/10 jaar). "
+            "Scheve vloeren, druk op fundering en riool."
+        )
     else:
-        level, chip, msg = "warn", "sterk", f"Bodem zakt >{per_jaar:.1f}mm/jaar — grote structurele impact op buurt, infrastructuur, groen."
+        level, chip, msg = "warn", "sterk", (
+            f">{per_jaar:.1f} mm/jaar. Snelle daling — structurele impact."
+        )
     return Reference(
         chip_level=level,
         chip_text=chip,
-        nl_gemiddelde="<1 mm/jaar (niet-veen)",
-        norm="peilbuis + InSAR metingen",
+        nl_gemiddelde="<1 mm/jaar buiten veen",
+        norm=None,
         betekenis=msg,
     )
 
@@ -394,18 +396,18 @@ def ref_wateroverlast_neerslag(cm: Optional[float]) -> Optional[Reference]:
     if cm is None or cm <= 0:
         return None
     if cm < 5:
-        level, chip, msg = "good", "droog", "Straat blijft vrijwel droog bij piek-neerslag."
+        level, chip, msg = "good", "droog", "Straat blijft droog bij piek-regen."
     elif cm < 15:
-        level, chip, msg = "neutral", "licht", f"Tot ~{cm:.0f}cm op straat bij stortbui — kruipruimte vaak OK."
+        level, chip, msg = "neutral", "licht", f"Tot ~{cm:.0f} cm op straat bij stortbui."
     elif cm < 30:
-        level, chip, msg = "warn", "matig", f"Tot ~{cm:.0f}cm; kans op instromen via voordeur of kruipruimte."
+        level, chip, msg = "warn", "matig", f"Tot ~{cm:.0f} cm; water kan kruipruimte of voordeur bereiken."
     else:
-        level, chip, msg = "warn", "hoog", f"Tot ~{cm:.0f}cm op straat; hoog risico op binnendringen water bij intense regen."
+        level, chip, msg = "warn", "hoog", f"Tot ~{cm:.0f} cm; hoog risico op binnendringen."
     return Reference(
         chip_level=level,
         chip_text=chip,
-        nl_gemiddelde="~5cm (NL stedelijk)",
-        norm="bij T=100 piek-neerslag",
+        nl_gemiddelde="~5 cm stedelijk",
+        norm="bij T=100 piek-regen",
         betekenis=msg,
     )
 
