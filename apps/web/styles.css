@@ -1061,6 +1061,23 @@ main {
 .onderwijs-icoon { font-size: 1.05rem; text-align: center; }
 .onderwijs-main { display: flex; flex-direction: column; min-width: 0; }
 .onderwijs-naam { color: var(--ink); font-weight: 500; }
+.onderwijs-info-link {
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--accent);
+  text-decoration: none;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: middle;
+}
+.onderwijs-info-link:hover {
+  background: var(--accent);
+  color: #fff;
+}
 .onderwijs-sub {
   font-size: 0.78rem;
   color: var(--muted);

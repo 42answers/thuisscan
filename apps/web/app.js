@@ -506,16 +506,22 @@ function renderOnderwijs(o) {
       .join(' · ')
     : '';
 
-  const koTopList = (ko.top || []).map(it => `
+  const koTopList = (ko.top || []).map(it => {
+    // LRK-deeplink: ouders kunnen inspectierapport (PDF) inzien per locatie
+    const infoLink = it.url
+      ? `<a href="${escape(it.url)}" target="_blank" rel="noopener" class="onderwijs-info-link" title="Open LRK-pagina met inspectierapport">info ↗</a>`
+      : '';
+    return `
     <li class="onderwijs-item">
       <span class="onderwijs-icoon">${it.type === 'KDV' ? '👶' : it.type === 'BSO' ? '🎒' : '🏠'}</span>
       <span class="onderwijs-main">
-        <span class="onderwijs-naam">${escape(it.naam || '(onbekend)')}</span>
+        <span class="onderwijs-naam">${escape(it.naam || '(onbekend)')} ${infoLink}</span>
         <span class="onderwijs-sub">${escape(koTypeLabels[it.type] || it.type || '')}${it.kindplaatsen ? ` · ${it.kindplaatsen} kindplaatsen` : ''}</span>
       </span>
       <span class="onderwijs-dist">${formatMeters(it.meters)}</span>
     </li>
-  `).join('');
+  `;
+  }).join('');
 
   // Scholen — top 5 met inspectie-chip
   const schHeader = sc.aantal > 0
@@ -539,11 +545,18 @@ function renderOnderwijs(o) {
     const oordeelChip = oordeel
       ? `<span class="chip chip-${oordeelLvl} chip-inline">${escape(oordeel)}</span>`
       : '';
+    // Scholen op de Kaart heeft geen directe BRIN-URL, maar Google 'site:'-
+    // search geeft vrijwel altijd de juiste SoK-pagina als eerste hit.
+    // Deep-link: "scholenopdekaart.nl + schoolnaam" → openen in nieuw tab.
+    const sokQuery = encodeURIComponent(`${it.naam || ''} site:scholenopdekaart.nl`);
+    const sokLink = it.naam
+      ? `<a href="https://www.google.com/search?q=${sokQuery}" target="_blank" rel="noopener" class="onderwijs-info-link" title="Open Scholen op de Kaart via Google">Scholen op de Kaart ↗</a>`
+      : '';
     return `
       <li class="onderwijs-item">
         <span class="onderwijs-icoon">🏫</span>
         <span class="onderwijs-main">
-          <span class="onderwijs-naam">${escape(it.naam || '(onbekend)')}</span>
+          <span class="onderwijs-naam">${escape(it.naam || '(onbekend)')} ${sokLink}</span>
           <span class="onderwijs-sub">${escape(it.denominatie || '')} ${oordeelChip}</span>
         </span>
         <span class="onderwijs-dist">${formatMeters(it.meters)}</span>
