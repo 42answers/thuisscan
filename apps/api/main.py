@@ -169,7 +169,13 @@ if WEB_DIR.exists():
 
     @app.get("/app.js")
     async def serve_js() -> FileResponse:
-        return FileResponse(WEB_DIR / "app.js")
+        # no-cache zodat browsers bij elke page-load de laatste JS fetchen.
+        # Bij een static site zou versioning (app.js?v=X) beter zijn, maar
+        # voor MVP is 'geen-cache' simpeler en merkt de gebruiker het niet.
+        return FileResponse(
+            WEB_DIR / "app.js",
+            headers={"Cache-Control": "no-cache, must-revalidate"},
+        )
 
     @app.get("/config.js")
     async def serve_config():
