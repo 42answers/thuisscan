@@ -56,6 +56,36 @@ class Halte:
     lijnen: list[str] = field(default_factory=list)
 
 
+# Grote werkcentra (intercity-stations) in NL voor hemelsbrede afstandsmeting.
+# Deze geven een ruwe 'afstand tot de grote stad' maatstaf. We geven GEEN
+# reistijd-claim — dat vereist OpenTripPlanner + GTFS. Hemelsbrede afstand
+# is correleert goed met pendelbereikbaarheid voor de grote corridors.
+GROTE_WERKCENTRA = [
+    ("Amsterdam",  "Amsterdam Centraal",  52.37906, 4.90011),
+    ("Rotterdam",  "Rotterdam Centraal",  51.92511, 4.46931),
+    ("Den Haag",   "Den Haag Centraal",   52.08062, 4.32453),
+    ("Utrecht",    "Utrecht Centraal",    52.08935, 5.11002),
+    ("Eindhoven",  "Eindhoven Centraal",  51.44311, 5.48130),
+    ("Groningen",  "Groningen",           53.21101, 6.56413),
+    ("Zwolle",     "Zwolle",              52.50461, 6.09252),
+    ("Arnhem",     "Arnhem Centraal",     51.98486, 5.89898),
+    ("Nijmegen",   "Nijmegen",            51.84360, 5.85249),
+    ("'s-Hertogenbosch", "'s-Hertogenbosch",  51.69020, 5.29291),
+    ("Breda",      "Breda",               51.59535, 4.77983),
+    ("Tilburg",    "Tilburg",             51.56051, 5.08356),
+    ("Leeuwarden", "Leeuwarden",          53.19604, 5.79273),
+    ("Maastricht", "Maastricht",          50.84910, 5.70539),
+]
+
+
+@dataclass
+class Werkcentrum:
+    """Afstand tot een intercity-station / werkcentrum."""
+    stad: str
+    station: str
+    km: float        # hemelsbrede afstand, afgerond
+
+
 @dataclass
 class Bereikbaarheid:
     """Samengestelde bereikbaarheid-score voor een adres."""
@@ -67,6 +97,8 @@ class Bereikbaarheid:
     # Auto — alleen afstand, geen lijnen
     snelweg_oprit_meters: Optional[int] = None
     snelweg_oprit_naam: Optional[str] = None
+    # Top-3 dichtstbijzijnde grote werkcentra (hemelsbreed)
+    werkcentra: list[Werkcentrum] = field(default_factory=list)
 
 
 def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -159,16 +191,19 @@ async def fetch_bereikbaarheid(lat: float, lon: float) -> Bereikbaarheid:
         candidates.sort(key=lambda h: h.meters)
         return candidates[0]
 
-    result.trein = _best_halte(
-        "trein",
-        lambda t: (
-            t.get("railway") == "station"
-            and t.get("station") not in ("subway", "light_rail")
-        )
-        or (t.get("public_transport") == "stop_position" and t.get("train") == "yes")
-        or t.get("railway") == "stop",
-        RADIUS_TREIN,
-    )
+    # Trein-filter: pas op voor OSM-tag-verwarring. 'railway=stop' wordt
+    # in OSM óók op tram-stops gebruikt; we moeten dus expliciet train=yes
+    # hebben, of een railway=station zonder tram/subway/light_rail station-tag.
+    def _is_trein(t: dict) -> bool:
+        if t.get("railway") == "station":
+            return t.get("station") not in ("subway", "light_rail", "tram")
+        # Bij stop-positions of railway=stop: alleen als expliciet train=yes
+        # EN niet gemarkeerd als tram.
+        if t.get("public_transport") == "stop_position" or t.get("railway") == "stop":
+            return t.get("train") == "yes" and t.get("tram") != "yes"
+        return False
+
+    result.trein = _best_halte("trein", _is_trein, RADIUS_TREIN)
     result.metro = _best_halte(
         "metro",
         lambda t: (
@@ -213,6 +248,21 @@ async def fetch_bereikbaarheid(lat: float, lon: float) -> Bereikbaarheid:
         d, nm, _, _ = snelweg_candidates[0]
         result.snelweg_oprit_meters = d
         result.snelweg_oprit_naam = nm
+
+    # Top-3 werkcentra op hemelsbrede afstand (lokaal, geen extra API-call).
+    # Tonen de drie dichtstbijzijnde grote steden om 'afstand tot werk-NL'
+    # te karakteriseren. Geen reistijd-claim — alleen afstand.
+    wc_ranked = sorted(
+        (
+            (stad, station, _haversine_m(lat, lon, clat, clon) / 1000.0)
+            for stad, station, clat, clon in GROTE_WERKCENTRA
+        ),
+        key=lambda x: x[2],
+    )
+    result.werkcentra = [
+        Werkcentrum(stad=s, station=st, km=round(km, 1))
+        for s, st, km in wc_ranked[:3]
+    ]
 
     return result
 

@@ -1340,8 +1340,12 @@ def _build_bereikbaarheid(
 
     # Heeft deze locatie überhaupt OV-ontsluiting?
     has_ov = any([b.trein, b.metro, b.tram, b.bus])
+    werkcentra = [
+        {"stad": w.stad, "station": w.station, "km": w.km}
+        for w in (b.werkcentra or [])
+    ]
     return {
-        "available": has_ov or bool(b.snelweg_oprit_meters),
+        "available": has_ov or bool(b.snelweg_oprit_meters) or bool(werkcentra),
         "trein": _halte_to_dict(b.trein),
         "metro": _halte_to_dict(b.metro),
         "tram": _halte_to_dict(b.tram),
@@ -1350,6 +1354,7 @@ def _build_bereikbaarheid(
             "meters": b.snelweg_oprit_meters,
             "naam": b.snelweg_oprit_naam,
         } if b.snelweg_oprit_meters else None,
+        "werkcentra": werkcentra,
     }
 
 

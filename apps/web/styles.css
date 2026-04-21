@@ -1113,6 +1113,15 @@ main {
   color: var(--muted);
   font-size: 0.88rem;
 }
+.bereik-section-title {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 1.2rem 0 0.4rem;
+  font-weight: 500;
+}
+.bereik-section-title:first-child { margin-top: 0; }
 .bereik-lijnen { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
 .bereik-lijn {
   display: inline-block;
