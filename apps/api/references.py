@@ -616,6 +616,96 @@ def ref_met_kinderen(pct: Optional[float]) -> Optional[Reference]:
     )
 
 
+def ref_huishoudensgrootte(grootte: Optional[float]) -> Optional[Reference]:
+    """Gemiddelde huishoudensgrootte.
+
+    Karakterisering, geen goed/slecht:
+      ≤ 1.5 : dominant singles — stadswijk of seniorenflat
+      1.5-2.0 : gemengd — veel stellen zonder kinderen en singles
+      2.0-2.4 : gezinnen + andere types gemengd — typische NL-wijk
+      > 2.4 : dominant gezinnen met kinderen — suburbane / landelijke gezinsbuurt
+    NL-gemiddelde 2024: ~2.1 personen.
+    """
+    if grootte is None:
+        return None
+    if grootte <= 1.5:
+        chip, msg = "veel singles", (
+            "Kleine huishoudens domineren — stadswijk, studentenbuurt of "
+            "appartementen voor ouderen. Weinig gezinscultuur."
+        )
+    elif grootte <= 2.0:
+        chip, msg = "singles + stellen", (
+            "Mix van singles en stellen; beperkt aantal gezinnen."
+        )
+    elif grootte <= 2.4:
+        chip, msg = "gemengde samenstelling", (
+            "Typische NL-mix van gezinnen, stellen en singles."
+        )
+    else:
+        chip, msg = "gezinsbuurt", (
+            "Dominant gezinnen met kinderen — suburbaan of landelijk "
+            "gezinsprofiel."
+        )
+    return Reference(
+        chip_level="neutral",
+        chip_text=chip,
+        nl_gemiddelde="2.1 personen (NL-gemiddelde)",
+        norm=None,
+        betekenis=msg,
+    )
+
+
+def ref_leeftijdsprofiel(
+    pct_jong: Optional[float],
+    pct_midden: Optional[float],
+    pct_oud: Optional[float],
+) -> Optional[Reference]:
+    """Karakterisering op basis van 3 leeftijdsklassen (0-15 / 15-65 / 65+).
+
+    Proxyt voor het type buurt:
+      - Hoog % jong (>20%) met veel gezinnen → gezinsbuurt
+      - Hoog % midden (>70%) → jongvolwassen stadswijk
+      - Hoog % 65+ (>25%) → vergrijsde wijk
+      - Anders → gemengd
+
+    NL-gemiddelde (2024): ~16% jong, ~64% midden, ~20% 65+.
+    """
+    if pct_jong is None and pct_midden is None and pct_oud is None:
+        return None
+    j, m, o = (pct_jong or 0), (pct_midden or 0), (pct_oud or 0)
+    if o >= 25 and j < 14:
+        chip, msg = "vergrijsde wijk", (
+            "Aanzienlijk ouderenaandeel — rustiger buurt, vaak "
+            "seniorencomplexen of van-oudsher gevestigde bewoners."
+        )
+    elif j >= 20 and m >= 55:
+        chip, msg = "gezinsbuurt", (
+            "Veel jonge kinderen — typisch voor suburbane wijken met "
+            "scholen, speelplekken en gezinswoningen."
+        )
+    elif m >= 72 and j < 12:
+        chip, msg = "jongvolwassen stadswijk", (
+            "Dominante 25-45 groep; stad-centrum-kenmerken met singles, "
+            "stellen en weinig kinderen."
+        )
+    elif abs(j - 16) <= 4 and abs(o - 20) <= 5:
+        chip, msg = "NL-gemiddeld leeftijdsprofiel", (
+            "Gevarieerde mix van generaties, dicht bij het landelijk "
+            "gemiddelde."
+        )
+    else:
+        chip, msg = "gemengd leeftijdsprofiel", (
+            "Mix van generaties zonder één dominante groep."
+        )
+    return Reference(
+        chip_level="neutral",
+        chip_text=chip,
+        nl_gemiddelde="NL: ~16% jong · ~64% midden · ~20% 65+",
+        norm=None,
+        betekenis=msg,
+    )
+
+
 def ref_dichtheid(per_km2: Optional[int]) -> Optional[Reference]:
     """Bevolkingsdichtheid per km². NL-gem 2024: 527/km². Grote steden >5000."""
     if per_km2 is None:

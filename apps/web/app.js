@@ -221,16 +221,23 @@ function render(d) {
     renderVoorzieningenList(d.voorzieningen);
   }
 
-  // Sectie 3: buren — alles via fieldHTML
+  // Sectie 3: buren — layout herzien om karakter van de buurt te tonen
+  // i.p.v. inhoudsloze getallen als totaal-inwoners en dichtheid.
+  // Grid (2×2): huishoudensverdeling + demografie.
+  // Full-width daaronder: leeftijdsprofiel (stacked bar) + TK-uitslag.
   const b = d.buren || {};
   const grid = [
     fieldHTML('Eenpersoonshuishoudens', b.eenpersoons),
     fieldHTML('Huishoudens met kinderen', b.met_kinderen),
-    fieldHTML('Inwoners in buurt', b.inwoners,
-      it => it.value.toLocaleString('nl-NL')),
-    fieldHTML('Dichtheid', b.dichtheid,
-      it => `${it.value.toLocaleString('nl-NL')} /km²`),
+    fieldHTML('Gem. huishoudensgrootte', b.huishoudensgrootte,
+      it => `${it.value} pers.`),
   ];
+  // Leeftijdsprofiel als stacked-bar row (full-width); hergebruikt de
+  // eigendomsverhouding-styling voor consistentie.
+  if (b.leeftijdsprofiel) {
+    const leefHTML = renderLeeftijdsprofiel(b.leeftijdsprofiel);
+    if (leefHTML) grid.push(leefHTML);
+  }
   // TK2023-verkiezing top-3 als aparte full-width row onder de grid
   if (b.verkiezing_tk2023) {
     grid.push(renderVerkiezing(b.verkiezing_tk2023));
@@ -369,6 +376,44 @@ function renderEigendomsverhouding(eig) {
   return `<div class="field field-fullwidth eigendom">
     <span class="label">Eigendomsverhouding woningen${scopeSuffix}</span>
     <div class="eig-bar" aria-label="Verdeling koop, sociale huur, particuliere huur">${bar}</div>
+    <div class="eig-legend">${legend}</div>
+    ${refHTML}
+  </div>`;
+}
+
+// ---- Leeftijdsprofiel als stacked bar (kinderen / 15-65 / 65+) ----
+// Zelfde visuele taal als renderEigendomsverhouding voor consistentie.
+// 3 klassen: 0-15 = kinderen, 15-65 = werkzame leeftijd, 65+ = ouderen.
+function renderLeeftijdsprofiel(leef) {
+  if (!leef) return '';
+  const j = leef.pct_jong;
+  const m = leef.pct_midden;
+  const o = leef.pct_oud;
+  if (j == null && m == null && o == null) return '';
+  const segments = [
+    { key: 'jong',   label: '0–15 jr',    pct: j, color: 'leef-jong' },
+    { key: 'midden', label: '15–65 jr',   pct: m, color: 'leef-midden' },
+    { key: 'oud',    label: '65+',        pct: o, color: 'leef-oud' },
+  ].filter(s => s.pct != null && s.pct > 0);
+  const bar = segments.map(s =>
+    `<span class="eig-seg ${s.color}" style="flex:${s.pct}"
+      title="${escape(s.label)}: ${s.pct}%"></span>`
+  ).join('');
+  const legend = segments.map(s =>
+    `<span class="eig-leg"><span class="eig-dot ${s.color}"></span>${escape(s.label)} <strong>${s.pct}%</strong></span>`
+  ).join('');
+  const scopeSuffix = leef.scope && leef.scope !== 'buurt'
+    ? ` <span class="scope-inline" title="op ${escape(leef.scope)}-niveau gepubliceerd">(${escape(leef.scope)})</span>`
+    : '';
+  const ref = leef.ref;
+  const refHTML = ref ? `
+    <p class="chip chip-${ref.chip_level}">${escape(ref.chip_text)}</p>
+    ${ref.betekenis ? `<p class="meaning">${escape(ref.betekenis)}</p>` : ''}
+    ${ref.nl_gemiddelde ? `<p class="refline">${escape(ref.nl_gemiddelde)}</p>` : ''}
+  ` : '';
+  return `<div class="field field-fullwidth eigendom">
+    <span class="label">Leeftijdsmix buurt${scopeSuffix}</span>
+    <div class="eig-bar" aria-label="Verdeling 0-15, 15-65, 65+ jaar">${bar}</div>
     <div class="eig-legend">${legend}</div>
     ${refHTML}
   </div>`;

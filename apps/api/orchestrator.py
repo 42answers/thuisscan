@@ -630,6 +630,57 @@ def _build_buren(
         else None
     )
     scope = buurt.scope or {}
+
+    # Leeftijdsprofiel: absolute aantallen → percentages van totaal.
+    # We tonen 3 klassen in UI (jong/volwassen/oud) door de 5 CBS-klassen
+    # te hergroeperen: 0-15 = kinderen, 15-65 = werkzame leeftijd, 65+ = oud.
+    leef_raw = {
+        "0-15":   buurt.leeftijd_0_15,
+        "15-25":  buurt.leeftijd_15_25,
+        "25-45":  buurt.leeftijd_25_45,
+        "45-65":  buurt.leeftijd_45_65,
+        "65+":    buurt.leeftijd_65plus,
+    }
+    leef_totaal = sum(v for v in leef_raw.values() if v is not None)
+    leeftijdsprofiel = None
+    if leef_totaal > 0:
+        def _pct(key: str) -> Optional[float]:
+            v = leef_raw.get(key)
+            return round(100 * v / leef_totaal, 1) if v is not None else None
+        pct_0_15 = _pct("0-15")
+        pct_15_25 = _pct("15-25")
+        pct_25_45 = _pct("25-45")
+        pct_45_65 = _pct("45-65")
+        pct_65plus = _pct("65+")
+        # Aggregeer tot 3 klassen voor compactere UI-weergave
+        pct_jong = pct_0_15
+        pct_midden = round(
+            sum(p for p in (pct_15_25, pct_25_45, pct_45_65) if p is not None), 1
+        ) if any(p is not None for p in (pct_15_25, pct_25_45, pct_45_65)) else None
+        pct_oud = pct_65plus
+        leef_scope = next(
+            (scope.get(k) for k in (
+                "leeftijd_0_15", "leeftijd_15_25", "leeftijd_25_45",
+                "leeftijd_45_65", "leeftijd_65plus",
+            ) if scope.get(k)),
+            None,
+        )
+        leeftijdsprofiel = {
+            "pct_jong": pct_jong,          # 0-15
+            "pct_midden": pct_midden,      # 15-65
+            "pct_oud": pct_oud,            # 65+
+            # Fijngranulair voor tooltip / gedetailleerde weergave
+            "fijn": {
+                "0-15": pct_0_15,
+                "15-25": pct_15_25,
+                "25-45": pct_25_45,
+                "45-65": pct_45_65,
+                "65+": pct_65plus,
+            },
+            "ref": _as_ref(references.ref_leeftijdsprofiel(pct_jong, pct_midden, pct_oud)),
+            "scope": leef_scope,
+        }
+
     out = {
         "available": True,
         "eenpersoons": {
@@ -644,6 +695,17 @@ def _build_buren(
             "ref": _as_ref(references.ref_met_kinderen(pct_met_kinderen)),
             "scope": scope.get("huishoudens_met_kinderen"),
         },
+        # Gemiddelde huishoudensgrootte: 1.5 = singles, 2.0-2.4 = gemengd,
+        # 2.5+ = gezinsbuurt. Data was al aanwezig, nu zichtbaar.
+        "huishoudensgrootte": {
+            "value": buurt.huishoudensgrootte,
+            "unit": "personen",
+            "ref": _as_ref(references.ref_huishoudensgrootte(buurt.huishoudensgrootte)),
+            "scope": scope.get("huishoudensgrootte"),
+        },
+        "leeftijdsprofiel": leeftijdsprofiel,
+        # Legacy fields voor backwards-compat (frontend rendert ze niet meer,
+        # maar evt. oude clients of caches zouden breken zonder).
         "inwoners": {
             "value": buurt.inwoners,
             "unit": None,

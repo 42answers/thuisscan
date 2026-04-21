@@ -276,6 +276,15 @@ main {
 .eig-dot.eig-soc  { background: #4a7fb5; }
 .eig-dot.eig-par  { background: #d9a441; }
 
+/* Leeftijdsprofiel — hergebruikt eig-bar/eig-seg/eig-dot, alleen kleuren per klasse.
+   Warm oranje voor kinderen, groen voor werkzame leeftijd, paarsblauw voor 65+. */
+.eig-seg.leef-jong   { background: #e8935c; }
+.eig-seg.leef-midden { background: var(--strong); }
+.eig-seg.leef-oud    { background: #7b6aa8; }
+.eig-dot.leef-jong   { background: #e8935c; }
+.eig-dot.leef-midden { background: var(--strong); }
+.eig-dot.leef-oud    { background: #7b6aa8; }
+
 @media (max-width: 560px) {
   .eig-legend { gap: 0.5rem 0.9rem; font-size: 0.78rem; }
 }
@@ -825,9 +834,13 @@ main {
   border-top: 1px solid var(--line);
 }
 .trend-grid {
+  /* Trend-blocks (2 jaar + 10 jaar) onder elkaar i.p.v. naast elkaar.
+     Naast elkaar voelde onbalans: de 2-jaar is vaak kort ('stabiel'),
+     10-jaar heeft meer inhoud (dimensie-veranderingen). Verticaal leest
+     rustiger en geeft beide blokken de ruimte die ze nodig hebben. */
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.8rem;
+  grid-template-columns: 1fr;
+  gap: 0.6rem;
   margin-top: 0.6rem;
 }
 .trend-block {

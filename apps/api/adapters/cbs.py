@@ -97,6 +97,13 @@ MEASURES = {
     "eenpersoonshuishoudens": "1050015",
     "huishoudens_met_kinderen": "1016030",
     "huishoudensgrootte": "M000114",        # gemiddeld
+    # Leeftijdsklassen — samen tonen wie er in de buurt woont (gezinsbuurt,
+    # ouderenwijk, jongerenwijk). Veel informatiever dan totaal-inwoners.
+    "leeftijd_0_15": "10680",               # 0 tot 15 jaar
+    "leeftijd_15_25": "53050",              # 15 tot 25 jaar
+    "leeftijd_25_45": "53310",              # 25 tot 45 jaar
+    "leeftijd_45_65": "53715",              # 45 tot 65 jaar
+    "leeftijd_65plus": "80200",             # 65 jaar of ouder
 
     # --- Sectie 2 uitbreiding — opleidingsniveau ---
     "opleiding_laag": "2018700",            # Basisonderwijs, vmbo, mbo1
@@ -152,6 +159,12 @@ class BuurtStats:
     eenpersoonshuishoudens: Optional[int]
     huishoudens_met_kinderen: Optional[int]
     huishoudensgrootte: Optional[float]
+    # Leeftijdsklassen (absolute aantallen; orchestrator maakt er % van)
+    leeftijd_0_15: Optional[int]
+    leeftijd_15_25: Optional[int]
+    leeftijd_25_45: Optional[int]
+    leeftijd_45_65: Optional[int]
+    leeftijd_65plus: Optional[int]
     # Sectie 5
     laadpalen: Optional[int]
     # Voorzieningen-ringen (afstanden in km)
@@ -202,27 +215,42 @@ async def fetch_buurt(
                 parsed[field] = val
                 scope[field] = "gemeente"
 
-    # Opleidingsniveau is een 3-tupel (laag/midden/hoog) dat samen het totaal
-    # vormt. Mix van scopes geeft een onzinnige % (teller op ene schaal, noemer
-    # op andere). Forceer: alle 3 op de ruimste scope waar minstens 1 beschikbaar is.
-    opl_keys = ("opleiding_laag", "opleiding_midden", "opleiding_hoog")
-    opl_scopes = [scope.get(k) for k in opl_keys]
-    if len(set(s for s in opl_scopes if s)) > 1:
-        # Mix gedetecteerd — herlaad alle 3 op de ruimste scope
-        rank = {"buurt": 0, "wijk": 1, "gemeente": 2}
-        ruimst = max((s for s in opl_scopes if s), key=lambda s: rank[s])
+    # Scope-synchronisatie voor groepen die SAMEN een verdeling vormen
+    # (teller en noemer moeten uit dezelfde scope komen, anders worden
+    # percentages onzin: bv. opleiding_hoog uit wijk / totaal uit buurt).
+    # Voor elke groep: als velden op verschillende scopes staan, herlaad
+    # alles op de ruimste scope waar minstens 1 veld beschikbaar is.
+    rank = {"buurt": 0, "wijk": 1, "gemeente": 2}
+
+    async def _reload_group_to_scope(group_keys: tuple) -> None:
+        group_scopes = [scope.get(k) for k in group_keys]
+        if len(set(s for s in group_scopes if s)) <= 1:
+            return  # al consistent
+        ruimst = max((s for s in group_scopes if s), key=lambda s: rank[s])
         if ruimst == "wijk" and wijkcode:
             reload_code = wijkcode
         elif ruimst == "gemeente" and gemeentecode:
             reload_code = gemeentecode if gemeentecode.startswith("GM") else f"GM{gemeentecode}"
         else:
-            reload_code = None
-        if reload_code:
-            rp, _ = await _query_measures(reload_code, [MEASURES[k] for k in opl_keys])
-            for k in opl_keys:
-                if rp.get(k) is not None:
-                    parsed[k] = rp[k]
-                    scope[k] = ruimst
+            return
+        rp, _ = await _query_measures(reload_code, [MEASURES[k] for k in group_keys])
+        for k in group_keys:
+            if rp.get(k) is not None:
+                parsed[k] = rp[k]
+                scope[k] = ruimst
+
+    await _reload_group_to_scope(
+        ("opleiding_laag", "opleiding_midden", "opleiding_hoog")
+    )
+    await _reload_group_to_scope(
+        (
+            "leeftijd_0_15",
+            "leeftijd_15_25",
+            "leeftijd_25_45",
+            "leeftijd_45_65",
+            "leeftijd_65plus",
+        )
+    )
 
     return _build_buurtstats(buurtcode, parsed, scope)
 
@@ -403,6 +431,11 @@ def _build_buurtstats(buurtcode: str, parsed: dict, scope: dict) -> BuurtStats:
         eenpersoonshuishoudens=as_int(parsed["eenpersoonshuishoudens"]),
         huishoudens_met_kinderen=as_int(parsed["huishoudens_met_kinderen"]),
         huishoudensgrootte=parsed["huishoudensgrootte"],
+        leeftijd_0_15=as_int(parsed["leeftijd_0_15"]),
+        leeftijd_15_25=as_int(parsed["leeftijd_15_25"]),
+        leeftijd_25_45=as_int(parsed["leeftijd_25_45"]),
+        leeftijd_45_65=as_int(parsed["leeftijd_45_65"]),
+        leeftijd_65plus=as_int(parsed["leeftijd_65plus"]),
         laadpalen=as_int(parsed["laadpalen"]),
         afstand_huisarts_km=parsed["afstand_huisarts"],
         afstand_supermarkt_km=parsed["afstand_supermarkt"],
