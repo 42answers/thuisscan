@@ -495,8 +495,13 @@ function renderKlimaat(k) {
   // Directe grid zonder bodemtype-header — de filter is achter de schermen
   // logic, niet iets om aan de gebruiker uit te leggen. De relevante
   // risico's verschijnen gewoon; irrelevante zijn er simpelweg niet.
+  //
+  // BELANGRIJK: schrijf direct in s-klimaat-grid (dat IS al een grid-2).
+  // Een geneste <div class="grid-2"> zou als enkel element in de outer
+  // grid belanden en daardoor alleen de linker helft vullen (bug die
+  // zichtbaar was: alle kolommen geperst in helft breedte).
   const cells = risks.map(r => renderKlimaatRisk(r)).filter(Boolean);
-  grid.innerHTML = `<div class="grid-2 klimaat-risks">${cells.join('')}</div>`;
+  renderGrid('s-klimaat-grid', cells);
 }
 
 function renderKlimaatRisk(r) {
