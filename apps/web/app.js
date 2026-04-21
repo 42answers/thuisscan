@@ -382,9 +382,11 @@ async function renderMap(d) {
     .setLngLat([lon, lat])
     .addTo(_map);
 
-  // Optioneel: BAG pand-polygoon ophalen via onze backend (zie orchestrator)
-  const pandId = (d.woning && d.woning.bag_pand_id) || null;
-  if (pandId) loadPandPolygon(pandId);
+  // Polygoon-overlay: als polygoon al geprefetched is, meteen tekenen.
+  // Anders laadt _prefetchPand() hem nog, en haalt loadPandPolygon hem
+  // daarna uit de cache zonder dubbele WFS-call.
+  const pandForMap = (d.woning && d.woning.bag_pand_id) || null;
+  if (pandForMap) loadPandPolygon(pandForMap);
 }
 
 // ---- Tab-switching tussen Kaart / Street View / Satelliet ----
