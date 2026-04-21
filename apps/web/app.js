@@ -286,6 +286,9 @@ function render(d) {
   const k = d.klimaat || {};
   renderKlimaat(k);
 
+  // Sectie 7: kinderen & onderwijs
+  renderOnderwijs(d.onderwijs);
+
   // Provenance
   const provs = d.provenance || [];
   setText('p-woning', findProv(provs, 'woning'));
@@ -293,6 +296,7 @@ function render(d) {
   setText('p-veiligheid', findProv(provs, 'veiligheid'));
   setText('p-lucht', findProv(provs, 'leefkwaliteit'));
   setText('p-klimaat', findProv(provs, 'klimaat'));
+  setText('p-onderwijs', findProv(provs, 'onderwijs'));
 
   $result.hidden = false;
 }
@@ -467,6 +471,101 @@ function renderMigratieachtergrond(mig) {
     <div class="eig-legend">${legend}</div>
     ${refHTML}
   </div>`;
+}
+
+// ---- Sectie 7 · Kinderen & onderwijs (LRK + DUO + Onderwijsinspectie) ----
+// Toont binnen 1.5 km van het adres:
+//   - Kinderopvang: totaal aantal locaties + kindplaatsen, top 5 dichtstbij
+//   - Scholen (basis): aantal + inspectie-oordelen-split, top 5 dichtstbij
+// Voor scholen: chip met inspectie-oordeel (Voldoende = groen, Onvoldoende/
+// Zeer zwak = rood, Zonder actueel oordeel = grijs).
+function renderOnderwijs(o) {
+  const section = document.getElementById('s-onderwijs');
+  const host = document.getElementById('s-onderwijs-content');
+  if (!section || !host) return;
+  if (!o || o.available === false) { section.hidden = true; return; }
+
+  const ko = o.kinderopvang || {};
+  const sc = o.scholen || {};
+  const radiusKm = ((o.radius_m || 1500) / 1000).toFixed(1);
+
+  // Samenvatting (top-regel) van kinderopvang
+  const koHeader = ko.aantal_locaties > 0
+    ? `<strong>${ko.aantal_locaties}</strong> kinderopvang-locaties binnen ${radiusKm} km` +
+      (ko.totaal_kindplaatsen ? ` · ${ko.totaal_kindplaatsen.toLocaleString('nl-NL')} kindplaatsen` : '')
+    : `Geen kinderopvang binnen ${radiusKm} km gevonden.`;
+
+  const koTypeLabels = { KDV: 'dagverblijf', BSO: 'buitenschoolse opvang', VGO: 'gastouder', GO: 'gastouder-buro' };
+  const koTypeSummary = ko.per_type
+    ? Object.entries(ko.per_type).filter(([_, n]) => n > 0)
+      .map(([t, n]) => `${n} ${koTypeLabels[t] || t}`)
+      .join(' · ')
+    : '';
+
+  const koTopList = (ko.top || []).map(it => `
+    <li class="onderwijs-item">
+      <span class="onderwijs-icoon">${it.type === 'KDV' ? '👶' : it.type === 'BSO' ? '🎒' : '🏠'}</span>
+      <span class="onderwijs-main">
+        <span class="onderwijs-naam">${escape(it.naam || '(onbekend)')}</span>
+        <span class="onderwijs-sub">${escape(koTypeLabels[it.type] || it.type || '')}${it.kindplaatsen ? ` · ${it.kindplaatsen} kindplaatsen` : ''}</span>
+      </span>
+      <span class="onderwijs-dist">${formatMeters(it.meters)}</span>
+    </li>
+  `).join('');
+
+  // Scholen — top 5 met inspectie-chip
+  const schHeader = sc.aantal > 0
+    ? `<strong>${sc.aantal}</strong> basisscholen binnen ${radiusKm} km`
+    : `Geen basisscholen binnen ${radiusKm} km gevonden.`;
+
+  const schOordelenBadges = sc.oordelen
+    ? Object.entries(sc.oordelen).filter(([_, n]) => n > 0).map(([label, n]) => {
+        const lvl = label === 'Voldoende' ? 'good'
+          : (label === 'Onvoldoende' || label === 'Zeer zwak') ? 'warn'
+          : 'neutral';
+        return `<span class="chip chip-${lvl}">${n}× ${escape(label.toLowerCase())}</span>`;
+      }).join(' ')
+    : '';
+
+  const schTopList = (sc.top || []).map(it => {
+    const oordeel = it.inspectie_oordeel;
+    const oordeelLvl = oordeel === 'Voldoende' ? 'good'
+      : (oordeel === 'Onvoldoende' || oordeel === 'Zeer zwak') ? 'warn'
+      : 'neutral';
+    const oordeelChip = oordeel
+      ? `<span class="chip chip-${oordeelLvl} chip-inline">${escape(oordeel)}</span>`
+      : '';
+    return `
+      <li class="onderwijs-item">
+        <span class="onderwijs-icoon">🏫</span>
+        <span class="onderwijs-main">
+          <span class="onderwijs-naam">${escape(it.naam || '(onbekend)')}</span>
+          <span class="onderwijs-sub">${escape(it.denominatie || '')} ${oordeelChip}</span>
+        </span>
+        <span class="onderwijs-dist">${formatMeters(it.meters)}</span>
+      </li>
+    `;
+  }).join('');
+
+  host.innerHTML = `
+    <div class="onderwijs-block">
+      <h4 class="onderwijs-header">Kinderopvang</h4>
+      <p class="onderwijs-sum">${koHeader}${koTypeSummary ? ` <span class="muted small">(${koTypeSummary})</span>` : ''}</p>
+      ${koTopList ? `<ul class="onderwijs-list">${koTopList}</ul>` : ''}
+    </div>
+    <div class="onderwijs-block">
+      <h4 class="onderwijs-header">Basisscholen</h4>
+      <p class="onderwijs-sum">${schHeader} ${schOordelenBadges}</p>
+      ${schTopList ? `<ul class="onderwijs-list">${schTopList}</ul>` : ''}
+      <p class="hint">Inspectie-oordeel via Onderwijsinspectie. 'Zonder actueel oordeel' = school heeft sinds laatste herziening geen onderzoek gehad; geen signaal van tekortkoming.</p>
+    </div>
+  `;
+  section.hidden = false;
+}
+
+function formatMeters(m) {
+  if (m == null) return '—';
+  return m < 1000 ? `${m} m` : `${(m / 1000).toFixed(1)} km`;
 }
 
 // ---- Sectie 6 · Klimaatrisico (bodem-aware) ----

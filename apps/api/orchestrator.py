@@ -24,7 +24,7 @@ from typing import Optional
 
 import references
 import social_questions
-from adapters import bag, cbs, kadaster_woz, klimaat, leefbaarometer, overpass, pdok_locatie, politie, rivm_geluid, rivm_lki, rvo_ep, verkiezingen
+from adapters import bag, cbs, kadaster_woz, klimaat, leefbaarometer, onderwijs, overpass, pdok_locatie, politie, rivm_geluid, rivm_lki, rvo_ep, verkiezingen
 
 
 def _as_ref(r) -> Optional[dict]:
@@ -81,6 +81,7 @@ class ScanResult:
     veiligheid: dict  # Sectie 4
     leefkwaliteit: dict  # Sectie 5
     klimaat: dict  # Sectie 6
+    onderwijs: dict  # Sectie 7 — kinderopvang + scholen + inspectie
     sociale_vragen: list[dict]  # 3 menselijke vragen (post-processing)
     provenance: list[dict]  # bronvermelding per sectie voor UI-tags
 
@@ -169,6 +170,7 @@ async def scan(query: str) -> ScanResult:
         veiligheid=_build_veiligheid(misdrijven),
         leefkwaliteit=_build_leefkwaliteit(lucht, geluid),
         klimaat=_build_klimaat(klimaatrisico),
+        onderwijs=_build_onderwijs(match.lat, match.lon),
         sociale_vragen=[],  # gevuld in result_as_dict na serialisatie
         provenance=_provenance(match.buurtcode or ""),
     )
@@ -1287,6 +1289,21 @@ def _build_klimaat(k: Optional[klimaat.Klimaatrisico]) -> dict:
     return out
 
 
+def _build_onderwijs(lat: float, lon: float) -> dict:
+    """Sectie 7 — kinderopvang + scholen binnen 1.5 km.
+
+    Geen netwerk-IO: adapter leest in-memory JSON (geladen uit
+    apps/api/data/onderwijs.json bij eerste gebruik) en doet haversine.
+    """
+    if not (lat and lon):
+        return {"available": False}
+    try:
+        result = onderwijs.fetch_onderwijs(lat, lon)
+    except Exception:
+        return {"available": False}
+    return result
+
+
 def _risico_ref(r: "klimaat.Risico"):  # type: ignore[name-defined]
     """Map Risico naar de juiste reference-functie op basis van key."""
     if r.key == "paalrot":
@@ -1361,6 +1378,11 @@ def _provenance(buurtcode: str) -> list[dict]:
             "section": "leefkwaliteit_geluid",
             "source": "RIVM geluid-Lden 2022 via ALO WMS (peiljaar 2020)",
             "peildatum": "2020 cumulatieve belasting",
+        },
+        {
+            "section": "onderwijs",
+            "source": "LRK (kinderopvang) + DUO (basisscholen) + Onderwijsinspectie",
+            "peildatum": "maandelijkse sync — bronnen actueel",
         },
     ]
 
