@@ -133,6 +133,21 @@ async def scan_endpoint(q: str = Query(..., min_length=3, description="Adres")) 
     return orchestrator.result_as_dict(result)
 
 
+@app.get("/woz")
+async def woz_endpoint(
+    bag_vbo_id: str = Query(..., description="BAG verblijfsobject-identificatie"),
+) -> dict:
+    """Pand-specifieke WOZ-waarde via WOZ-loket viewer-API.
+
+    Rate-limited op 1/sec globaal om WOZ-loket niet te overvragen.
+    Cache 365 dagen per BAG-id (WOZ verandert jaarlijks).
+    """
+    try:
+        return await orchestrator.fetch_woz_pand(bag_vbo_id)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"WOZ faalde: {e}") from e
+
+
 @app.get("/klimaat")
 async def klimaat_endpoint(
     lat: float = Query(..., description="WGS84 latitude"),

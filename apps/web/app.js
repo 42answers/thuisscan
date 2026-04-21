@@ -236,6 +236,14 @@ function render(d) {
     renderBereikbaarheid(d.bereikbaarheid);
   }
 
+  // Pand-specifieke WOZ via WOZ-loket viewer-API (lazy, 1/sec rate-limited).
+  // Upgrade de WOZ-cel in sectie 1 zodra de waarde binnen is (anders blijft
+  // het buurtgemiddelde staan als 'placeholder').
+  const bagVbo = d.adres && d.adres.bag_verblijfsobject_id;
+  if (bagVbo) {
+    loadWozAsync(bagVbo, d.wijk_economie && d.wijk_economie.woz);
+  }
+
   // Sectie 3: buren — layout herzien om karakter van de buurt te tonen
   // i.p.v. inhoudsloze getallen als totaal-inwoners en dichtheid.
   // Grid (2×2): huishoudensverdeling + demografie.
@@ -659,6 +667,58 @@ function renderBereikbaarheidSkeleton() {
     </ul>
   `;
   section.hidden = false;
+}
+
+async function loadWozAsync(bagVboId, wozBuurt) {
+  if (!bagVboId) return;
+  try {
+    const r = await fetch(`${API_BASE}/woz?bag_vbo_id=${encodeURIComponent(bagVboId)}`);
+    if (!r.ok) return;
+    const w = await r.json();
+    if (!w.available || !w.huidige_waarde_eur) return;
+    // Vervang de WOZ-cel in sectie 1 (woning) met pand-specifieke waarde.
+    // Target: het 3e veld in s-woning-grid (volgorde Bouwjaar/Oppervlakte/
+    // WOZ/Energielabel). Werkt robuust door te zoeken op <strong> die het
+    // buurtgemiddelde nu toont.
+    const wozEur = '€ ' + w.huidige_waarde_eur.toLocaleString('nl-NL');
+    const peil = w.huidige_peildatum ? w.huidige_peildatum.substr(0, 4) : '';
+    const trend = w.trend_pct_per_jaar;
+    // Chip: kleur op basis van stijging
+    let level = 'neutral', chipText = 'WOZ-waarde bekend';
+    if (trend != null) {
+      if (trend >= 3) { level = 'good'; chipText = `+${trend}% per jaar`; }
+      else if (trend <= -2) { level = 'warn'; chipText = `${trend}% per jaar`; }
+      else { level = 'neutral'; chipText = `${trend > 0 ? '+' : ''}${trend}% per jaar`; }
+    }
+    // Mini-trendlijn: eerste en laatste 2 datapunten
+    const hist = w.historie || [];
+    let histLine = '';
+    if (hist.length >= 2) {
+      const first = hist[hist.length - 1]; // oudste
+      const last = hist[0]; // nieuwste
+      histLine = `${first.peildatum.substr(0,4)}: €${first.waarde_eur.toLocaleString('nl-NL')} → ${last.peildatum.substr(0,4)}: €${last.waarde_eur.toLocaleString('nl-NL')}`;
+    }
+    // Schrijf de nieuwe WOZ-cel
+    const grid = document.getElementById('s-woning-grid');
+    if (!grid) return;
+    // Zoek het .field waarvan de .label 'WOZ' bevat
+    const fields = grid.querySelectorAll('.field');
+    for (const f of fields) {
+      const lbl = f.querySelector('.label');
+      if (lbl && lbl.textContent.includes('WOZ')) {
+        f.innerHTML = `
+          <span class="label">WOZ-waarde (dit pand)</span>
+          <strong>${escape(wozEur)}</strong>
+          <p class="chip chip-${level}">${escape(chipText)}</p>
+          <p class="refline">Peildatum ${escape(peil)} · bron WOZ-waardeloket</p>
+          ${histLine ? `<p class="hint">${escape(histLine)}</p>` : ''}
+        `;
+        break;
+      }
+    }
+  } catch (_) {
+    // Silent fallback — buurt-WOZ blijft zichtbaar
+  }
 }
 
 async function loadBereikbaarheidAsync(adres) {

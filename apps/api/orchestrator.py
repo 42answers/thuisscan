@@ -24,7 +24,7 @@ from typing import Optional
 
 import references
 import social_questions
-from adapters import bag, bereikbaarheid, cbs, kadaster_woz, klimaat, leefbaarometer, onderwijs, overpass, pdok_locatie, politie, rivm_geluid, rivm_lki, rvo_ep, verkiezingen
+from adapters import bag, bereikbaarheid, cbs, kadaster_woz, klimaat, leefbaarometer, onderwijs, overpass, pdok_locatie, politie, rivm_geluid, rivm_lki, rvo_ep, verkiezingen, woz_loket
 
 
 def _as_ref(r) -> Optional[dict]:
@@ -157,6 +157,7 @@ async def scan(query: str) -> ScanResult:
             "buurt_naam": buurt_naam,
             "wijkcode": match.wijkcode,
             "gemeentecode": match.gemeentecode,
+            "bag_verblijfsobject_id": match.bag_verblijfsobject_id,
             "wgs84": {"lat": match.lat, "lon": match.lon},
             "rd": {"x": match.rd_x, "y": match.rd_y},
         },
@@ -283,6 +284,38 @@ async def _cached_fetch_woz_adres(
     if result is not None:
         _cache_set(key, result)
     return result
+
+
+async def fetch_woz_pand(bag_vbo_id: str) -> dict:
+    """Los endpoint: pand-specifieke WOZ-waarde via WOZ-loket.
+
+    Rate-limited (1/sec globaal, beleefd) + 365d cache per BAG-id.
+    Retourneert een compact dict voor de UI; bij geen data:
+    {"available": False}.
+    """
+    if not bag_vbo_id:
+        return {"available": False}
+    key = f"woz_pand:{bag_vbo_id}"
+    hit = _cache_get(key, 365 * 24 * 3600)
+    if isinstance(hit, dict):
+        return hit
+    try:
+        result = await woz_loket.fetch_woz(bag_vbo_id)
+    except Exception:
+        return {"available": False}
+    if result is None or result.huidige_waarde_eur is None:
+        out = {"available": False}
+    else:
+        out = {
+            "available": True,
+            "wozobjectnummer": result.wozobjectnummer,
+            "huidige_waarde_eur": result.huidige_waarde_eur,
+            "huidige_peildatum": result.huidige_peildatum,
+            "trend_pct_per_jaar": result.trend_pct_per_jaar,
+            "historie": result.historie,
+        }
+    _cache_set(key, out)
+    return out
 
 
 async def fetch_klimaat_section(
