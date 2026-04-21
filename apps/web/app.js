@@ -343,7 +343,14 @@ async function renderMap(d) {
   if (!lat || !lon) { el.hidden = true; return; }
   el.hidden = false;
   _mapCurrentLatLon = { lat, lon, displayName: d.adres.display_name };
-  _mapPandCentroid = null;  // reset; wordt gevuld door loadPandPolygon
+  _mapPandCentroid = null;
+  _pandGeometryCache = null;  // nieuwe scan -> oude cache weg
+
+  // PREFETCH pand-polygoon meteen (parallel aan de rest). Als user direct
+  // op Street View klikt krijgt hij een fallback-view met alleen adres-
+  // coördinaten; zodra polygoon binnen is DRAAIT de camera naar het pand.
+  const pandId = (d.woning && d.woning.bag_pand_id) || null;
+  if (pandId) _prefetchPand(pandId);
 
   // Reset tabs: Satelliet is default (meest visueel herkenbaar)
   _activateTab('satellite');
@@ -424,21 +431,21 @@ function _loadStreetView() {
       </div>`;
     return;
   }
-  // Bereken heading zodat de camera naar het pand kijkt.
-  // Strategie: als we de pand-polygoon kennen, pak het centroid en zet de
-  // camera-positie ~20m ZUID van het centroid (aannemend dat voorgevels vaak
-  // naar het zuiden/straat kijken; Google's pano-lookup snapt het dichtstbij
-  // en de heading wijst vanaf straat naar pand).
-  const centroid = _mapPandCentroid;  // globals gezet door loadPandPolygon
+  // Twee modi:
+  //  A. Centroid beschikbaar → camera 20m zuidelijk van pand, heading
+  //     berekent bearing naar centroid. Camera kijkt richting pand.
+  //  B. Geen centroid nog → INSTANT fallback: adres-lat/lon met heading=0.
+  //     Google's Street View pano-lookup zoekt de dichtstbijzijnde foto
+  //     automatisch; resultaat is vaak al redelijk gericht op de woning.
+  //     Wanneer polygoon binnenkomt, herlaadt _prefetchPand() dit iframe
+  //     met de juiste heading (camera draait alsnog naar het pand).
+  const centroid = _mapPandCentroid;
   let streetLat = lat, streetLon = lon, heading = 0;
   if (centroid) {
     const [cLat, cLon] = centroid;
-    // Stap 20m in willekeurige richting (zuid als default; we hebben geen
-    // straat-info, dus dit is een redelijke benadering voor een NL-woning).
     const offsetM = 20;
     streetLat = cLat - (offsetM / 111000);  // 1° lat ≈ 111 km
-    streetLon = cLon;  // alleen zuidelijk; geen lon-offset
-    // Heading van offset-punt naar pand-centroid (noordwaarts ≈ 0°)
+    streetLon = cLon;
     heading = _bearing(streetLat, streetLon, cLat, cLon);
   }
   const wanted = `sv:${streetLat.toFixed(6)},${streetLon.toFixed(6)}:${Math.round(heading)}`;
@@ -501,16 +508,40 @@ function _loadSatellite() {
       src="https://www.google.com/maps/embed/v1/view?key=${encodeURIComponent(key)}&center=${lat},${lon}&zoom=19&maptype=satellite"></iframe>`;
 }
 
-async function loadPandPolygon(pandId) {
+// Prefetch polygoon bij scan — los van kaart-rendering. Cache op pandId
+// zodat we niet opnieuw fetchen als user naar Kadaster-tab gaat.
+let _pandGeometryCache = null;
+
+async function _prefetchPand(pandId) {
   try {
     const r = await fetch(`${API_BASE}/pand-geometry?pand_id=${pandId}`);
     if (!r.ok) return;
     const gj = await r.json();
     if (!gj || !gj.geometry) return;
-
-    // Centroid berekenen — simpel gemiddelde van polygoon-punten is goed genoeg
-    // voor Street View heading (hoeven geen echte area-gewogen centroid).
+    _pandGeometryCache = gj;
     _mapPandCentroid = _polygonCentroidLL(gj.geometry);
+
+    // Zodra we de centroid hebben: als de user op Street View staat,
+    // herlaad die met de juiste heading (camera draait naar pand).
+    const activeTab = document.querySelector('.map-tab.active');
+    if (activeTab && activeTab.dataset.view === 'streetview') {
+      _loadStreetView();
+    }
+  } catch (_) { /* stille fout */ }
+}
+
+async function loadPandPolygon(pandId) {
+  // Kaart-tab: gebruikt gecachte geometry als beschikbaar; anders ophalen.
+  try {
+    let gj = _pandGeometryCache;
+    if (!gj) {
+      const r = await fetch(`${API_BASE}/pand-geometry?pand_id=${pandId}`);
+      if (!r.ok) return;
+      gj = await r.json();
+      if (!gj || !gj.geometry) return;
+      _pandGeometryCache = gj;
+      _mapPandCentroid = _polygonCentroidLL(gj.geometry);
+    }
 
     // Verwijder vorige layer + source
     if (_map.getLayer('pand-fill')) _map.removeLayer('pand-fill');
