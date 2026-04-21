@@ -169,3 +169,12 @@ if WEB_DIR.exists():
     @app.get("/app.js")
     async def serve_js() -> FileResponse:
         return FileResponse(WEB_DIR / "app.js")
+
+    @app.get("/config.js")
+    async def serve_config() -> FileResponse:
+        # config.js is gitignored (bevat API-keys) — bestaat alleen lokaal.
+        # Als het niet bestaat, val terug op config.example.js (lege keys).
+        target = WEB_DIR / "config.js"
+        if not target.exists():
+            target = WEB_DIR / "config.example.js"
+        return FileResponse(target, media_type="application/javascript")
