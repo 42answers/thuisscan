@@ -31,6 +31,69 @@ Testen:
 curl "http://localhost:8000/lookup?q=Damrak+1+Amsterdam"
 ```
 
+## Deploy naar Fly.io
+
+Single-container deployment in Amsterdam-region: één URL voor frontend +
+backend, persistent volume voor de RVO SQLite-cache.
+
+### Eenmalige setup (~5 min)
+
+```bash
+# 1. Fly CLI installeren
+brew install flyctl
+
+# 2. Account aanmaken (gratis, vereist credit card maar wordt niet belast
+#    binnen de free tier: 3x shared-cpu-1x VMs + 3 GB volume + 160 GB egress)
+fly auth signup
+
+# 3. App registreren (leest fly.toml)
+cd thuisscan
+fly launch --copy-config --no-deploy
+
+# 4. Persistent volume aanmaken (3 GB voor SQLite + downloads)
+fly volumes create thuisscan_cache --region ams --size 3
+
+# 5. Secrets zetten
+fly secrets set \
+  RVO_API_KEY="$(grep RVO_API_KEY apps/api/.env | cut -d= -f2)" \
+  GOOGLE_MAPS_API_KEY="$(grep GOOGLE_MAPS_API_KEY apps/web/config.js | cut -d'"' -f2)"
+# (optioneel) Kadaster WOZ key:
+# fly secrets set KADASTER_WOZ_API_KEY="..."
+
+# 6. Deploy!
+fly deploy
+```
+
+Resultaat: **https://thuisscan.fly.dev**
+
+### Eerste keer: RVO-data inladen (~10 min)
+
+Het volume is leeg na deploy; energielabels werken dan nog niet. Eenmalig
+het sync-script draaien op de server:
+
+```bash
+fly ssh console -C "python /app/apps/api/scripts/sync_ep_online.py"
+```
+
+Daarna werkt energielabel-lookup voor alle 5,7 miljoen NL-adressen.
+
+### Updates
+
+`git push origin main` triggert geen auto-deploy. Voor elke release:
+
+```bash
+fly deploy
+```
+
+### Monitoring
+
+```bash
+fly logs              # streaming logs
+fly status            # machine + volume status
+fly ssh console       # shell op container
+fly dashboard         # browser-UI met metrics
+```
+
 ## Frontend-configuratie (config.js)
 
 De frontend leest runtime-config uit `apps/web/config.js`. Deze file is

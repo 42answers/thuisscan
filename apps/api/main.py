@@ -14,6 +14,7 @@ Test:
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -171,10 +172,26 @@ if WEB_DIR.exists():
         return FileResponse(WEB_DIR / "app.js")
 
     @app.get("/config.js")
-    async def serve_config() -> FileResponse:
-        # config.js is gitignored (bevat API-keys) — bestaat alleen lokaal.
-        # Als het niet bestaat, val terug op config.example.js (lege keys).
+    async def serve_config():
+        """Dynamische config-injectie.
+
+        Volgorde:
+          1. Als config.js lokaal bestaat (dev op laptop) → die serveren
+          2. Anders: genereer JS on-the-fly uit env-vars (productie/Fly.io)
+          3. Als ook env-vars ontbreken → leeg config.example.js
+
+        Op Fly: zet `fly secrets set GOOGLE_MAPS_API_KEY=AIza...` en
+        de frontend pikt 'm automatisch op zonder rebuild.
+        """
+        from fastapi.responses import Response
         target = WEB_DIR / "config.js"
-        if not target.exists():
-            target = WEB_DIR / "config.example.js"
-        return FileResponse(target, media_type="application/javascript")
+        if target.exists():
+            return FileResponse(target, media_type="application/javascript")
+        gmaps_key = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+        api_base = os.environ.get("THUISSCAN_API_BASE", "")
+        body = (
+            "// Auto-gegenereerd door backend uit env-vars\n"
+            f'window.THUISSCAN_API_BASE = {api_base!r};\n'
+            f'window.GOOGLE_MAPS_API_KEY = {gmaps_key!r};\n'
+        )
+        return Response(content=body, media_type="application/javascript")

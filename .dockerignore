@@ -1,0 +1,28 @@
+# Houd image klein en geen secrets in: .env + lokale caches eruit.
+.git
+.gitignore
+README.md
+netlify.toml
+
+# Lokale Python venv
+**/.venv
+**/__pycache__
+**/*.pyc
+
+# Lokale RVO cache (1 GB SQLite + 225 MB ZIP) — bouwen op de server
+apps/api/cache/
+
+# Secrets
+.env
+**/.env
+**/.env.local
+
+# OS
+.DS_Store
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# Frontend lokale config (heeft Google Maps key)
+apps/web/config.js
