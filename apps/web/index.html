@@ -34,18 +34,16 @@
 
     <!-- Kaart + pand-outline (met inline Street View / Satelliet toggle) -->
     <section class="mapcard" id="s-map" hidden>
-      <!-- Toggle-bar: schakelt tussen Kaart / Street View / Satelliet -->
+      <!-- Toggle-bar: Satelliet is default (meest visueel) -->
       <div class="map-tabs">
-        <button class="map-tab active" data-view="map">🗺️ Kaart</button>
+        <button class="map-tab active" data-view="satellite">🛰️ Satelliet</button>
         <button class="map-tab" data-view="streetview">📷 Street View</button>
-        <button class="map-tab" data-view="satellite">🛰️ Satelliet</button>
-        <a id="m-bag3d" class="map-tab map-tab-ext" target="_blank" rel="noopener">🏢 3D ↗</a>
+        <button class="map-tab" data-view="map">🗺️ Kadaster</button>
       </div>
-      <!-- Viewport: één van deze is zichtbaar per keer -->
       <div class="map-viewport">
-        <div id="map" class="map-pane active"></div>
+        <div id="map-satellite" class="map-pane active"></div>
         <div id="map-streetview" class="map-pane"></div>
-        <div id="map-satellite" class="map-pane"></div>
+        <div id="map" class="map-pane"></div>
       </div>
     </section>
 

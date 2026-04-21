@@ -334,6 +334,7 @@ function renderTrend(woz) {
 
 let _map = null;
 let _mapCurrentLatLon = null;  // onthoudt laatst getoonde adres voor lazy tab-loading
+let _mapPandCentroid = null;   // [lat, lon] van het pand voor Street View heading
 
 async function renderMap(d) {
   const el = document.getElementById('s-map');
@@ -342,13 +343,10 @@ async function renderMap(d) {
   if (!lat || !lon) { el.hidden = true; return; }
   el.hidden = false;
   _mapCurrentLatLon = { lat, lon, displayName: d.adres.display_name };
+  _mapPandCentroid = null;  // reset; wordt gevuld door loadPandPolygon
 
-  // BAG 3D-viewer link (externe, altijd nieuw tabblad — grote Kadaster-app)
-  document.getElementById('m-bag3d').href =
-    `https://bagviewer.kadaster.nl/lvbag/bag-viewer/index.html#?searchQuery=${encodeURIComponent(d.adres.display_name)}`;
-
-  // Reset tabs: zet 'Kaart' terug als actief bij elke nieuwe scan
-  _activateTab('map');
+  // Reset tabs: Satelliet is default (meest visueel herkenbaar)
+  _activateTab('satellite');
 
   // Wacht tot MapLibre geladen is (script had `defer`)
   if (typeof maplibregl === 'undefined') {
@@ -413,10 +411,9 @@ document.addEventListener('click', (e) => {
 function _loadStreetView() {
   const pane = document.getElementById('map-streetview');
   if (!pane || !_mapCurrentLatLon) return;
-  const { lat, lon, displayName } = _mapCurrentLatLon;
+  const { lat, lon } = _mapCurrentLatLon;
   const key = window.GOOGLE_MAPS_API_KEY;
   if (!key) {
-    // Fallback: externe link als er geen key is
     pane.innerHTML = `
       <div class="map-fallback">
         <p>Street View is alleen extern beschikbaar zonder Google Maps Embed-key.</p>
@@ -427,13 +424,57 @@ function _loadStreetView() {
       </div>`;
     return;
   }
-  // Alleen iframe vervangen als lat/lon verschilt (voorkomt unnodige reload)
-  const wanted = `sv:${lat},${lon}`;
+  // Bereken heading zodat de camera naar het pand kijkt.
+  // Strategie: als we de pand-polygoon kennen, pak het centroid en zet de
+  // camera-positie ~20m ZUID van het centroid (aannemend dat voorgevels vaak
+  // naar het zuiden/straat kijken; Google's pano-lookup snapt het dichtstbij
+  // en de heading wijst vanaf straat naar pand).
+  const centroid = _mapPandCentroid;  // globals gezet door loadPandPolygon
+  let streetLat = lat, streetLon = lon, heading = 0;
+  if (centroid) {
+    const [cLat, cLon] = centroid;
+    // Stap 20m in willekeurige richting (zuid als default; we hebben geen
+    // straat-info, dus dit is een redelijke benadering voor een NL-woning).
+    const offsetM = 20;
+    streetLat = cLat - (offsetM / 111000);  // 1° lat ≈ 111 km
+    streetLon = cLon;  // alleen zuidelijk; geen lon-offset
+    // Heading van offset-punt naar pand-centroid (noordwaarts ≈ 0°)
+    heading = _bearing(streetLat, streetLon, cLat, cLon);
+  }
+  const wanted = `sv:${streetLat.toFixed(6)},${streetLon.toFixed(6)}:${Math.round(heading)}`;
   if (pane.dataset.loaded === wanted) return;
   pane.dataset.loaded = wanted;
-  pane.innerHTML = `
-    <iframe loading="lazy" allowfullscreen
-      src="https://www.google.com/maps/embed/v1/streetview?key=${encodeURIComponent(key)}&location=${lat},${lon}&heading=0&pitch=0&fov=90"></iframe>`;
+  const url = `https://www.google.com/maps/embed/v1/streetview`
+    + `?key=${encodeURIComponent(key)}`
+    + `&location=${streetLat},${streetLon}`
+    + `&heading=${Math.round(heading)}`
+    + `&pitch=5&fov=90`;
+  pane.innerHTML = `<iframe loading="lazy" allowfullscreen src="${url}"></iframe>`;
+}
+
+// Centroid (simpel gemiddelde) van een GeoJSON Polygon/MultiPolygon, als [lat, lon]
+function _polygonCentroidLL(geom) {
+  // GeoJSON is [lon, lat]; we flatten alle rings/polygons en middelen
+  let pts = [];
+  const collect = c => {
+    if (typeof c[0] === 'number') { pts.push(c); return; }
+    c.forEach(collect);
+  };
+  if (geom.coordinates) collect(geom.coordinates);
+  if (!pts.length) return null;
+  const lon = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+  const lat = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+  return [lat, lon];
+}
+
+// Great-circle bearing van (lat1,lon1) naar (lat2,lon2), in graden [0-360)
+function _bearing(lat1, lon1, lat2, lon2) {
+  const toRad = d => d * Math.PI / 180, toDeg = r => r * 180 / Math.PI;
+  const φ1 = toRad(lat1), φ2 = toRad(lat2);
+  const Δλ = toRad(lon2 - lon1);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
 }
 
 function _loadSatellite() {
@@ -466,6 +507,10 @@ async function loadPandPolygon(pandId) {
     if (!r.ok) return;
     const gj = await r.json();
     if (!gj || !gj.geometry) return;
+
+    // Centroid berekenen — simpel gemiddelde van polygoon-punten is goed genoeg
+    // voor Street View heading (hoeven geen echte area-gewogen centroid).
+    _mapPandCentroid = _polygonCentroidLL(gj.geometry);
 
     // Verwijder vorige layer + source
     if (_map.getLayer('pand-fill')) _map.removeLayer('pand-fill');
