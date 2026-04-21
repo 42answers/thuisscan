@@ -28,6 +28,10 @@ TIMEOUT_S = 8.0
 # anders krijg je 0 resultaten terug (en geen foutmelding).
 CODE_TOTAAL = "0.0.0 "
 CODE_WONINGINBRAAK = "1.1.1 "
+# Fietsendiefstal (incl. brom-/snorfietsen) — meest voorkomend misdrijf in NL.
+# Sterke proxy voor sociale controle: buurten met veel fietsendiefstal zijn
+# vaak doorgangswijken waar niemand zich verantwoordelijk voelt voor buiten.
+CODE_FIETSENDIEFSTAL = "1.2.3 "
 # Geweldscluster — bedreiging, mishandeling, straatroof, openlijk geweld, overval.
 # Zedendelicten + moord zouden strikt ook meetellen maar die maken relevant
 # nieuws; we willen hier juist de 'sfeer-op-straat' score.
@@ -48,10 +52,13 @@ class Misdrijven:
     totaal_12m: Optional[int]  # alle misdrijven in 12 maanden
     woninginbraak_12m: Optional[int]  # sterkste indicator voor sectie 4
     geweld_12m: Optional[int]  # samengesteld: bedreiging/mishandeling/etc.
+    fietsendiefstal_12m: Optional[int]
     # Per 1000 inwoners voor vergelijkbaarheid tussen kleine/grote buurten.
     # None als inwonersaantal onbekend of 0.
     totaal_per_1000_inwoners: Optional[float]
     woninginbraak_per_1000_inwoners: Optional[float]
+    geweld_per_1000_inwoners: Optional[float]
+    fietsendiefstal_per_1000_inwoners: Optional[float]
 
 
 def _month_range(today: date, months: int = 12) -> tuple[str, str]:
@@ -94,7 +101,7 @@ async def fetch_misdrijven(
     van, tot = _month_range(today, months=12)
 
     # OData v3 filter — 'in' bestaat niet, dus 'or'-ladder op SoortMisdrijf.
-    all_codes = [CODE_TOTAAL, CODE_WONINGINBRAAK, *GEWELD_CODES]
+    all_codes = [CODE_TOTAAL, CODE_WONINGINBRAAK, CODE_FIETSENDIEFSTAL, *GEWELD_CODES]
     code_clauses = " or ".join(f"SoortMisdrijf eq '{c}'" for c in all_codes)
     filter_expr = (
         f"WijkenEnBuurten eq '{buurtcode}'"
@@ -117,6 +124,7 @@ async def fetch_misdrijven(
     totaal = 0
     inbraak = 0
     geweld = 0
+    fietsen = 0
     any_seen = False
     for row in data.get("value", []):
         any_seen = True
@@ -126,6 +134,8 @@ async def fetch_misdrijven(
             totaal += n
         elif code == CODE_WONINGINBRAAK:
             inbraak += n
+        elif code == CODE_FIETSENDIEFSTAL:
+            fietsen += n
         elif code in GEWELD_CODES:
             geweld += n
 
@@ -140,8 +150,11 @@ async def fetch_misdrijven(
             totaal_12m=None,
             woninginbraak_12m=None,
             geweld_12m=None,
+            fietsendiefstal_12m=None,
             totaal_per_1000_inwoners=None,
             woninginbraak_per_1000_inwoners=None,
+            geweld_per_1000_inwoners=None,
+            fietsendiefstal_per_1000_inwoners=None,
         )
 
     def per_1000(n: int) -> Optional[float]:
@@ -156,6 +169,9 @@ async def fetch_misdrijven(
         totaal_12m=totaal,
         woninginbraak_12m=inbraak,
         geweld_12m=geweld,
+        fietsendiefstal_12m=fietsen,
         totaal_per_1000_inwoners=per_1000(totaal),
         woninginbraak_per_1000_inwoners=per_1000(inbraak),
+        geweld_per_1000_inwoners=per_1000(geweld),
+        fietsendiefstal_per_1000_inwoners=per_1000(fietsen),
     )

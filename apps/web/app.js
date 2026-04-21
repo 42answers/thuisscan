@@ -198,11 +198,17 @@ function render(d) {
   const oplExtra = opl && opl.breakdown
     ? `laag ${opl.breakdown.laag_pct ?? '?'}% · midden ${opl.breakdown.midden_pct ?? '?'}% · hoog ${opl.breakdown.hoog_pct ?? '?'}%`
     : null;
-  renderGrid('s-wijk-grid', [
+  const wijkGrid = [
     fieldHTML('Gemiddeld inkomen per inwoner', we.inkomen_per_inwoner, it => formatEuro(it.value)),
     fieldHTML('Arbeidsparticipatie', we.arbeidsparticipatie),
     fieldHTML('Hoogopgeleid (hbo/wo)', opl, it => `${it.value}%`, oplExtra),
-  ]);
+  ];
+  // Eigendomsverhouding als full-width stacked-bar onder de grid
+  if (we.eigendomsverhouding) {
+    const eigHTML = renderEigendomsverhouding(we.eigendomsverhouding);
+    if (eigHTML) wijkGrid.push(eigHTML);
+  }
+  renderGrid('s-wijk-grid', wijkGrid);
 
   // Voorzieningen — lijst gesorteerd op afstand (geen ringen meer)
   renderVoorzieningenList(d.voorzieningen);
@@ -223,10 +229,15 @@ function render(d) {
   }
   renderGrid('s-buren-grid', grid);
 
-  // Sectie 4: veiligheid
+  // Sectie 4: veiligheid — 2×2 grid: inbraak+fietsendiefstal (spullen),
+  // geweld+totaal (persoon + context).
   const v = d.veiligheid || {};
   renderGrid('s-veiligheid-grid', [
     fieldHTML('Woninginbraken', v.woninginbraak,
+      it => it.value != null ? `${it.value} per 1.000 inw` : '—'),
+    fieldHTML('Fietsendiefstal (12 mnd)', v.fietsendiefstal,
+      it => it.value != null ? `${it.value} per 1.000 inw` : '—'),
+    fieldHTML('Geweldsmisdrijven (12 mnd)', v.geweld,
       it => it.value != null ? `${it.value} per 1.000 inw` : '—'),
     fieldHTML('Totaal misdrijven (12 mnd)', v.totaal,
       it => it.value != null ? `${it.value} per 1.000 inw` : '—'),
@@ -308,6 +319,50 @@ function renderVerkiezing(v) {
     <span class="label">Top 3 ${escape(electionLabel)}${escape(electionDate)}</span>
     <ul class="verkiezing-list">${rows}</ul>
     ${note}
+  </div>`;
+}
+
+// ---- Eigendomsverhouding als stacked bar (koop / sociale huur / particulier) ----
+// Full-width row onder de grid-2. Elk van de 3 segmenten toont zijn %, met een
+// kleurcodering die karakter weergeeft (niet goed/slecht). De interpretatie-
+// tekst eronder vertelt het verhaal: "corporatie-wijk", "koop-dominant", etc.
+function renderEigendomsverhouding(eig) {
+  if (!eig) return '';
+  const koop = eig.koop_pct;
+  const soc = eig.sociale_huur_pct;
+  const par = eig.particuliere_huur_pct;
+  // Als geen enkele waarde bekend is, helemaal niet renderen
+  if (koop == null && soc == null && par == null) return '';
+  // Segmenten met kleur-codering per type
+  const segments = [
+    { key: 'koop',    label: 'Koop',             pct: koop, color: 'eig-koop' },
+    { key: 'soc',     label: 'Sociale huur',     pct: soc,  color: 'eig-soc' },
+    { key: 'par',     label: 'Particuliere huur', pct: par, color: 'eig-par' },
+  ].filter(s => s.pct != null && s.pct > 0);
+  // Segment balken — flex, elk zijn breedte in %
+  const bar = segments.map(s =>
+    `<span class="eig-seg ${s.color}" style="flex:${s.pct}"
+      title="${escape(s.label)}: ${s.pct}%"></span>`
+  ).join('');
+  // Legenda met bolletje per kleur + label + pct
+  const legend = segments.map(s =>
+    `<span class="eig-leg"><span class="eig-dot ${s.color}"></span>${escape(s.label)} <strong>${s.pct}%</strong></span>`
+  ).join('');
+  // Scope-indicator (buurt/wijk/gemeente) achter de titel
+  const scopeSuffix = eig.scope && eig.scope !== 'buurt'
+    ? ` <span class="scope-inline" title="op ${escape(eig.scope)}-niveau gepubliceerd">(${escape(eig.scope)})</span>`
+    : '';
+  const ref = eig.ref;
+  const refHTML = ref ? `
+    <p class="chip chip-${ref.chip_level}">→ ${escape(ref.chip_text)}</p>
+    ${ref.betekenis ? `<p class="meaning">${escape(ref.betekenis)}</p>` : ''}
+    ${ref.nl_gemiddelde ? `<p class="refline">${escape(ref.nl_gemiddelde)}</p>` : ''}
+  ` : '';
+  return `<div class="field field-fullwidth eigendom">
+    <span class="label">Eigendomsverhouding woningen${scopeSuffix}</span>
+    <div class="eig-bar" aria-label="Verdeling koop, sociale huur, particuliere huur">${bar}</div>
+    <div class="eig-legend">${legend}</div>
+    ${refHTML}
   </div>`;
 }
 

@@ -457,6 +457,11 @@ def _build_wijk_economie(
     opl_scopes = [scope.get(k) for k in ("opleiding_laag", "opleiding_midden", "opleiding_hoog")]
     opl_scope = next((s for s in opl_scopes if s), None)
 
+    # Eigendomsverhouding — scope is laagste niveau waar minstens 1 veld
+    # beschikbaar is. Sommatie rond meestal 100% af (rounding tot gehele %).
+    eig_scopes = [scope.get(k) for k in ("koop_pct", "sociale_huur_pct", "particuliere_huur_pct")]
+    eig_scope = next((s for s in eig_scopes if s), None)
+
     return {
         "available": True,
         "woz": {
@@ -489,6 +494,20 @@ def _build_wijk_economie(
                 "midden_pct": opl_midden_pct,
                 "hoog_pct": opl_hoog_pct,
             },
+        },
+        # Eigendomsverhouding — stacked-bar visualisatie in frontend.
+        # We tonen dit als "field-fullwidth" onder de grid, zodat de 3
+        # categorieën lekker breed kunnen ademen.
+        "eigendomsverhouding": {
+            "koop_pct": buurt.koop_pct,
+            "sociale_huur_pct": buurt.sociale_huur_pct,
+            "particuliere_huur_pct": buurt.particuliere_huur_pct,
+            "ref": _as_ref(references.ref_eigendomsverhouding(
+                buurt.koop_pct,
+                buurt.sociale_huur_pct,
+                buurt.particuliere_huur_pct,
+            )),
+            "scope": eig_scope,
         },
     }
 
@@ -606,6 +625,23 @@ def _build_veiligheid(m: Optional[politie.Misdrijven]) -> dict:
             "absoluut_12m": m.woninginbraak_12m,
             "ref": _as_ref(references.ref_woninginbraak(m.woninginbraak_per_1000_inwoners)),
         },
+        # Geweldsmisdrijven per 1.000 inw (mishandeling + bedreiging + straatroof
+        # + openlijk geweld + overval). Distinct van totaal: vertelt over
+        # persoonlijke veiligheid op straat, niet over tourist-delicten.
+        "geweld": {
+            "value": m.geweld_per_1000_inwoners,
+            "unit": "per 1.000 inw",
+            "absoluut_12m": m.geweld_12m,
+            "ref": _as_ref(references.ref_geweld(m.geweld_per_1000_inwoners)),
+        },
+        # Fietsendiefstal — dagelijks leven indicator + proxy voor sociale controle
+        "fietsendiefstal": {
+            "value": m.fietsendiefstal_per_1000_inwoners,
+            "unit": "per 1.000 inw",
+            "absoluut_12m": m.fietsendiefstal_12m,
+            "ref": _as_ref(references.ref_fietsendiefstal(m.fietsendiefstal_per_1000_inwoners)),
+        },
+        # Legacy: absoluut geweld 12m (voor evt. frontend die nog dit veld leest)
         "geweld_12m": m.geweld_12m,
         "totaal": {
             "value": m.totaal_per_1000_inwoners,

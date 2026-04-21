@@ -82,6 +82,13 @@ MEASURES = {
     "woz_gemiddeld": "M001642",             # Gemiddelde WOZ-waarde van woningen
     "inkomen_per_inwoner": "M000224",       # Gem inkomen per inwoner
     "arbeidsparticipatie": "M001796_2",     # Nettoarbeidsparticipatie (%)
+    # Eigendomsverhouding — waarden zijn al in % (sommatie rond 100% modulo rounding).
+    # Geeft direct karakter van de wijk: koop-vastgoed vs. sociale huur vs.
+    # particuliere huur. Onderscheid tussen de twee huur-categorieën is cruciaal:
+    # corporaties = gereguleerd/gemengd, particulier = vaak expats/studenten/flex.
+    "koop_pct": "1014800",                  # Koopwoningen (%)
+    "sociale_huur_pct": "A047047",          # Huurwoningen in bezit woningcorporatie (%)
+    "particuliere_huur_pct": "A047048",     # Huurwoningen overige verhuurders (%)
 
     # --- Sectie 3 "De buren (sociaal weefsel)" ---
     "inwoners": "T001036",                  # Aantal inwoners
@@ -130,6 +137,10 @@ class BuurtStats:
     woz_gemiddeld_x1000_eur: Optional[float]  # CBS publiceert in eenheden van 1.000 euro
     inkomen_per_inwoner_x1000_eur: Optional[float]
     arbeidsparticipatie_pct: Optional[float]
+    # Eigendomsverhouding (%)
+    koop_pct: Optional[float]
+    sociale_huur_pct: Optional[float]
+    particuliere_huur_pct: Optional[float]
     # Opleidingsniveau (absolute aantallen; frontend/orchestrator maakt % ervan)
     opleiding_laag: Optional[int]
     opleiding_midden: Optional[int]
@@ -380,6 +391,9 @@ def _build_buurtstats(buurtcode: str, parsed: dict, scope: dict) -> BuurtStats:
         woz_gemiddeld_x1000_eur=parsed["woz_gemiddeld"],
         inkomen_per_inwoner_x1000_eur=parsed["inkomen_per_inwoner"],
         arbeidsparticipatie_pct=parsed["arbeidsparticipatie"],
+        koop_pct=parsed["koop_pct"],
+        sociale_huur_pct=parsed["sociale_huur_pct"],
+        particuliere_huur_pct=parsed["particuliere_huur_pct"],
         opleiding_laag=as_int(parsed["opleiding_laag"]),
         opleiding_midden=as_int(parsed["opleiding_midden"]),
         opleiding_hoog=as_int(parsed["opleiding_hoog"]),

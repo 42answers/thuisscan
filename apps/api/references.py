@@ -424,6 +424,136 @@ def ref_woninginbraak(per_1000: Optional[float]) -> Optional[Reference]:
     )
 
 
+def ref_eigendomsverhouding(
+    koop_pct: Optional[float],
+    sociale_pct: Optional[float],
+    particulier_pct: Optional[float],
+) -> Optional[Reference]:
+    """Karakterisering van de wijk op basis van eigendomsverhouding.
+
+    Geen goed/slecht — we kenschetsen het type buurt:
+      - Koop-dominant (>60%): stabiele bewoners, lange doorlooptijd
+      - Corporatie-dominant (>50%): gemengde doelgroepen, sociale woningmix
+      - Particuliere-huur-dominant (>40%): expats/studenten/flex, hoge doorstroom
+      - Anders: gemengde wijk
+
+    Daarom chip_level = 'neutral'; het label beschrijft het karakter.
+    """
+    if koop_pct is None and sociale_pct is None and particulier_pct is None:
+        return None
+    k = koop_pct or 0
+    s = sociale_pct or 0
+    p = particulier_pct or 0
+    if k >= 60:
+        chip, msg = "koop-dominant", (
+            "Dominant koopbuurt — stabiele bewoners, vaak lange verblijfsduur "
+            "en actieve VvE's. Lage doorstroom."
+        )
+    elif s >= 50:
+        chip, msg = "corporatie-wijk", (
+            "Vooral sociale huur (corporaties). Gemengde doelgroepen en vaak "
+            "meer stedelijke diversiteit in inkomen en achtergrond."
+        )
+    elif p >= 40:
+        chip, msg = "particuliere-huur-hotspot", (
+            "Veel particuliere verhuur — typerend voor centrumgebieden met "
+            "expats, studenten en tijdelijke bewoners. Hoge doorstroom."
+        )
+    elif k >= 45 and s + p >= 35:
+        chip, msg = "gemengd koop + huur", (
+            "Gebalanceerde mix van koop en huur — gemengde wijk met zowel "
+            "stabiele bewoners als doorstroming."
+        )
+    else:
+        chip, msg = "gemengd", (
+            "Gemengde eigendomssamenstelling zonder één dominante vorm."
+        )
+    return Reference(
+        chip_level="neutral",
+        chip_text=chip,
+        nl_gemiddelde="NL: 58% koop · 28% sociale huur · 14% particulier",
+        norm=None,
+        betekenis=msg,
+    )
+
+
+def ref_geweld(per_1000: Optional[float]) -> Optional[Reference]:
+    """Geweldsmisdrijven per 1.000 inw (mishandeling + bedreiging + straatroof
+    + openlijk geweld + overval) over 12 maanden.
+
+    NL-gemiddelde 2024: ~5 per 1.000 inw/jaar. Dit is de 'persoonlijke
+    veiligheid'-indicator — zegt iets over hoe veilig je je op straat voelt,
+    in tegenstelling tot totaal-misdrijven dat vervuild is door tourist-delicten.
+    """
+    if per_1000 is None:
+        return None
+    nl = 5.0
+    if per_1000 < nl * 0.6:
+        level, chip, msg = "good", "ruim onder NL-gemiddelde", (
+            "Lage geweldsdruk — rustige wijk qua persoonlijke veiligheid."
+        )
+    elif per_1000 < nl * 1.3:
+        level, chip, msg = "good", "rond NL-gemiddelde", (
+            "Gemiddeld geweldsniveau — typisch voor stedelijk NL."
+        )
+    elif per_1000 < nl * 2.2:
+        level, chip, msg = "warn", "boven NL-gemiddelde", (
+            "Verhoogd geweldsniveau — aandachtspunt voor persoonlijke veiligheid, "
+            "vooral 's avonds."
+        )
+    else:
+        level, chip, msg = "warn", "ver boven NL-gemiddelde", (
+            "Hoog geweldsniveau — niet vanzelfsprekend veilig op straat, "
+            "met name rond uitgaans- of stationsgebieden."
+        )
+    return Reference(
+        chip_level=level,
+        chip_text=chip,
+        nl_gemiddelde=f"~{nl} per 1.000 inw/jaar",
+        norm=None,
+        betekenis=msg,
+    )
+
+
+def ref_fietsendiefstal(per_1000: Optional[float]) -> Optional[Reference]:
+    """Fietsen- en bromfietsendiefstal per 1.000 inw (12 maanden).
+
+    NL-gemiddelde 2024: ~20 per 1.000 inw/jaar (~500K fietsen/jaar ÷ 17.9M
+    inwoners × 1.000, afgerond met correctie voor onderrapportage). Sterk
+    plaats-afhankelijk: centrumgebieden / stations zitten structureel hoger.
+
+    Deze indicator is vooral een proxy voor sociale controle — hoge cijfers
+    signaleren doorgangswijken zonder betrokken bewoners.
+    """
+    if per_1000 is None:
+        return None
+    nl = 20.0
+    if per_1000 < nl * 0.5:
+        level, chip, msg = "good", "ruim onder NL-gemiddelde", (
+            "Weinig fietsendiefstal — je fiets kan hier met één goed slot rustig buiten."
+        )
+    elif per_1000 < nl * 1.3:
+        level, chip, msg = "good", "rond NL-gemiddelde", (
+            "Typisch stedelijk — één goed slot volstaat meestal."
+        )
+    elif per_1000 < nl * 2.5:
+        level, chip, msg = "warn", "boven NL-gemiddelde", (
+            "Verhoogd risico — twee sloten zijn hier de norm, geen dure fiets buiten laten staan."
+        )
+    else:
+        level, chip, msg = "warn", "ver boven NL-gemiddelde", (
+            "Zeer hoog risico — typerend voor station-, centrum- of uitgaansgebied. "
+            "Ook een signaal van lage sociale controle in de buurt."
+        )
+    return Reference(
+        chip_level=level,
+        chip_text=chip,
+        nl_gemiddelde=f"~{nl} per 1.000 inw/jaar",
+        norm=None,
+        betekenis=msg,
+    )
+
+
 def ref_totaal_misdrijven(per_1000: Optional[float]) -> Optional[Reference]:
     """Totaal misdrijven per 1.000 inwoners over 12 maanden.
 

@@ -224,6 +224,58 @@ main {
 .trend-warn    { background: #fbe8e1; color: var(--weak); }
 .spark { font-variant-numeric: tabular-nums; font-size: 0.72rem; }
 
+/* Eigendomsverhouding — stacked bar (koop / sociale huur / particulier) */
+.eigendom .eig-bar {
+  display: flex;
+  width: 100%;
+  height: 16px;
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 0.6rem 0 0.5rem;
+  background: var(--line);
+}
+.eig-seg {
+  display: block;
+  height: 100%;
+  transition: flex 0.4s ease;
+}
+.eig-koop { background: var(--strong); }          /* groen: stabiel eigendom */
+.eig-soc  { background: #4a7fb5; }                /* blauw: corporatie */
+.eig-par  { background: #d9a441; }                /* oker: particulier */
+
+.eig-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem 1.2rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+}
+.eig-leg {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.eig-leg strong {
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+}
+.eig-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.eig-dot.eig-koop { background: var(--strong); }
+.eig-dot.eig-soc  { background: #4a7fb5; }
+.eig-dot.eig-par  { background: #d9a441; }
+
+@media (max-width: 560px) {
+  .eig-legend { gap: 0.5rem 0.9rem; font-size: 0.78rem; }
+}
+
 /* Verkiezing TK2023 */
 .field-fullwidth { grid-column: 1 / -1; }
 .verkiezing-list {
