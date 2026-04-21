@@ -53,7 +53,15 @@ class Halte:
     lat: float
     lon: float
     # Unieke lijnen die deze halte bedienen, bv. ['1', '2', 'IC']
+    # (Voor bus/tram/metro = lijn-refs; voor trein = NIET gevuld,
+    # daarvoor gebruiken we 'bestemmingen' en 'services'.)
     lijnen: list[str] = field(default_factory=list)
+    # Alleen voor treinen: bestemmingen (from/to uit OSM route-relations)
+    # bv. ['Amsterdam Centraal', 'Den Haag Centraal', 'Hoorn']
+    bestemmingen: list[str] = field(default_factory=list)
+    # Aantal IC- en sprinter-diensten (uit service=long_distance / regional)
+    aantal_ic: int = 0
+    aantal_sprinter: int = 0
 
 
 # Grote werkcentra (intercity-stations) in NL voor hemelsbrede afstandsmeting.
@@ -144,15 +152,28 @@ async def fetch_bereikbaarheid(lat: float, lon: float) -> Bereikbaarheid:
 
     # node_id → list of line-references (ref tag in route-relation)
     node_to_lines: dict[int, list[tuple[str, str]]] = defaultdict(list)
+    # Parallel: voor treinen verzamelen we een rijker pakket info per node
+    # (bestemming 'from'/'to', service-type 'regional'/'long_distance').
+    node_to_train_info: dict[int, list[dict]] = defaultdict(list)
     for rel in relations:
         tags = rel.get("tags") or {}
         route_type = tags.get("route")
         if route_type not in ("bus", "tram", "subway", "light_rail", "train"):
             continue
         ref = tags.get("ref") or tags.get("name") or "?"
+        train_info = None
+        if route_type == "train":
+            train_info = {
+                "from": tags.get("from") or "",
+                "to": tags.get("to") or "",
+                "service": tags.get("service") or "",  # 'regional' / 'long_distance'
+                "network": tags.get("network") or "",
+            }
         for m in rel.get("members") or []:
             if m.get("type") == "node":
                 node_to_lines[m["ref"]].append((route_type, ref))
+                if train_info:
+                    node_to_train_info[m["ref"]].append(train_info)
 
     # Nu per categorie de dichtstbijzijnde halte kiezen
     result = Bereikbaarheid()
@@ -174,19 +195,46 @@ async def fetch_bereikbaarheid(lat: float, lon: float) -> Bereikbaarheid:
             d = _haversine_m(lat, lon, nlat, nlon)
             if d > radius:
                 continue
-            # Unique lines through this node (per category)
-            lines_for_type = sorted({
-                ref for (rt, ref) in node_to_lines.get(n_id, [])
-                if _line_matches_cat(rt, cat)
-            })
-            candidates.append(Halte(
-                naam=tags.get("name"),
-                type=cat,
-                meters=int(round(d)),
-                lat=nlat,
-                lon=nlon,
-                lijnen=lines_for_type,
-            ))
+            # Unique lines through this node (per category).
+            # Voor treinen: lijn-refs verbergen we in UI (interne NS-nummers);
+            # we vullen i.p.v. bestemmingen + IC/Sprinter-tellingen.
+            if cat == "trein":
+                bestemmingen: set[str] = set()
+                aantal_ic = 0
+                aantal_sprinter = 0
+                for info in node_to_train_info.get(n_id, []):
+                    for b in (info.get("from"), info.get("to")):
+                        if b:
+                            bestemmingen.add(b)
+                    svc = info.get("service", "").lower()
+                    if svc == "long_distance":
+                        aantal_ic += 1
+                    elif svc == "regional":
+                        aantal_sprinter += 1
+                candidates.append(Halte(
+                    naam=tags.get("name"),
+                    type=cat,
+                    meters=int(round(d)),
+                    lat=nlat,
+                    lon=nlon,
+                    lijnen=[],  # bewust leeg voor trein
+                    bestemmingen=sorted(bestemmingen),
+                    aantal_ic=aantal_ic,
+                    aantal_sprinter=aantal_sprinter,
+                ))
+            else:
+                lines_for_type = sorted({
+                    ref for (rt, ref) in node_to_lines.get(n_id, [])
+                    if _line_matches_cat(rt, cat)
+                })
+                candidates.append(Halte(
+                    naam=tags.get("name"),
+                    type=cat,
+                    meters=int(round(d)),
+                    lat=nlat,
+                    lon=nlon,
+                    lijnen=lines_for_type,
+                ))
         if not candidates:
             return None
         candidates.sort(key=lambda h: h.meters)

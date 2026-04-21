@@ -1387,13 +1387,19 @@ def _build_bereikbaarheid(
     def _halte_to_dict(h) -> Optional[dict]:
         if h is None:
             return None
-        return {
+        out = {
             "naam": h.naam,
             "type": h.type,
             "meters": h.meters,
             "lijnen": h.lijnen or [],
             "aantal_lijnen": len(h.lijnen or []),
         }
+        # Voor treinen: rijkere info i.p.v. interne NS-trajectnummers
+        if h.type == "trein":
+            out["bestemmingen"] = h.bestemmingen or []
+            out["aantal_ic"] = h.aantal_ic
+            out["aantal_sprinter"] = h.aantal_sprinter
+        return out
 
     # Heeft deze locatie überhaupt OV-ontsluiting?
     has_ov = any([b.trein, b.metro, b.tram, b.bus])

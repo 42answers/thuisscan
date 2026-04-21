@@ -815,15 +815,30 @@ function renderBereikbaarheid(b) {
   for (const o of ov) {
     const h = b[o.key];
     if (!h) continue;
-    const lijnenStr = (h.lijnen && h.lijnen.length)
-      ? `<span class="bereik-lijnen">${h.lijnen.slice(0, 12).map(l => `<span class="bereik-lijn">${escape(String(l))}</span>`).join(' ')}${h.lijnen.length > 12 ? ` <span class="muted small">+${h.lijnen.length - 12}</span>` : ''}</span>`
-      : '';
+    // Voor treinen: interne NS-trajectnummers (4100, 8100) zijn onbruikbaar
+    // voor reizigers. In plaats daarvan tonen we IC/Sprinter-aantal + top-3
+    // bestemmingen (from/to uit OSM-route-relations).
+    let detail = '';
+    if (o.key === 'trein') {
+      const bits = [];
+      if (h.aantal_ic > 0) bits.push(`<span class="bereik-lijn">${h.aantal_ic}× IC</span>`);
+      if (h.aantal_sprinter > 0) bits.push(`<span class="bereik-lijn">${h.aantal_sprinter}× Sprinter</span>`);
+      const dest = (h.bestemmingen || []).slice(0, 4).join(', ');
+      const destMore = h.bestemmingen && h.bestemmingen.length > 4 ? ` +${h.bestemmingen.length - 4}` : '';
+      detail = bits.join(' ') + (dest ? ` · <span class="muted small">naar ${escape(dest)}${destMore}</span>` : '');
+    } else {
+      // Bus/tram/metro: lijn-refs zijn wel betekenisvol (17, 15, 52, etc)
+      const lijnenStr = (h.lijnen && h.lijnen.length)
+        ? `<span class="bereik-lijnen">${h.lijnen.slice(0, 12).map(l => `<span class="bereik-lijn">${escape(String(l))}</span>`).join(' ')}${h.lijnen.length > 12 ? ` <span class="muted small">+${h.lijnen.length - 12}</span>` : ''}</span>`
+        : '';
+      detail = lijnenStr;
+    }
     rows.push(`
       <li class="bereik-item">
         <span class="bereik-icoon">${o.icoon}</span>
         <span class="bereik-main">
           <span class="bereik-naam">${escape(h.naam || o.label)}</span>
-          <span class="bereik-sub">${escape(o.label)}${lijnenStr ? ' · ' + lijnenStr : ''}</span>
+          <span class="bereik-sub">${escape(o.label)}${detail ? ' · ' + detail : ''}</span>
         </span>
         <span class="bereik-dist">${formatMeters(h.meters)}</span>
       </li>
