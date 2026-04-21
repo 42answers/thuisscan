@@ -1004,6 +1004,23 @@ main {
   color: #a87b1a;
 }
 
+/* Klimaat-sectie: bodemtype-header boven de risico-grid */
+.klimaat-bodem {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: -0.2rem 0 0.8rem;
+  padding: 0.5rem 0.8rem;
+  background: var(--accent-soft);
+  border-radius: 6px;
+  border-left: 3px solid var(--accent);
+  line-height: 1.45;
+}
+.klimaat-bodem strong { color: var(--ink); }
+.klimaat-risks {
+  /* Iets meer verticale ruimte want elk risico heeft 4-5 regels tekst */
+  gap: 1.2rem 1.5rem;
+}
+
 /* Skeleton loader — getoond terwijl /voorzieningen laadt (3-6s cold start
    op Overpass). Pulse-animatie geeft feedback dat er iets gebeurt. */
 .voorz-loading-note {

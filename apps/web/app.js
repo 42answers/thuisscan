@@ -272,17 +272,12 @@ function render(d) {
     geluidHTML,
   ]);
 
-  // Sectie 6: klimaat
+  // Sectie 6: klimaat — bodem-aware. De backend retourneert nu een lijst
+  // 'risicos' gefilterd op wat relevant is voor deze locatie (veenpaalrot
+  // alleen bij veen, verschilzetting bij zand, overstroming bij rivier/zee
+  // etc). Hittestress is universeel.
   const k = d.klimaat || {};
-  const paalrotExtra = k.paalrot && k.paalrot.buurt
-    ? `Buurt ${escape(k.paalrot.buurt)} · ${k.paalrot.aantal_panden?.toLocaleString('nl-NL') || '?'} panden (worst-case scenario)`
-    : null;
-  renderGrid('s-klimaat-grid', [
-    fieldHTML('Funderingsrisico (paalrot)', k.paalrot,
-      it => it.value != null ? `${it.value}%` : '—', paalrotExtra),
-    fieldHTML('Hittestress (warme nachten)', k.hittestress,
-      it => it.label ? `${it.label} (klasse ${it.value}/5)` : '—'),
-  ]);
+  renderKlimaat(k);
 
   // Provenance
   const provs = d.provenance || [];
@@ -417,6 +412,75 @@ function renderLeeftijdsprofiel(leef) {
     <div class="eig-legend">${legend}</div>
     ${refHTML}
   </div>`;
+}
+
+// ---- Sectie 6 · Klimaatrisico (bodem-aware) ----
+// Backend retourneert een lijst risicos[] gefilterd op wat relevant is voor
+// de bodemsoort van deze locatie. Hier rendert de UI die dynamisch als
+// grid-2 cards. Legacy fallback als backend een oude response levert.
+function renderKlimaat(k) {
+  const grid = document.getElementById('s-klimaat-grid');
+  if (!grid) return;
+  const risks = (k && Array.isArray(k.risicos)) ? k.risicos : [];
+
+  if (risks.length === 0) {
+    // Legacy fallback voor oude responses (paalrot + hittestress velden).
+    const paalrotExtra = k && k.paalrot && k.paalrot.buurt
+      ? `Buurt ${escape(k.paalrot.buurt)} · ${k.paalrot.aantal_panden?.toLocaleString('nl-NL') || '?'} panden (worst-case scenario)`
+      : null;
+    const cells = [];
+    if (k && k.paalrot) cells.push(fieldHTML('Funderingsrisico (paalrot)', k.paalrot,
+      it => it.value != null ? `${it.value}%` : '—', paalrotExtra));
+    if (k && k.hittestress) cells.push(fieldHTML('Hittestress (warme nachten)', k.hittestress,
+      it => it.label ? `${it.label} (klasse ${it.value}/5)` : '—'));
+    renderGrid('s-klimaat-grid', cells);
+    return;
+  }
+
+  // Nieuwe flow: bodemtype als header + 2-kolom grid met relevante risico's
+  const bodemHeader = k.bodemtype_label
+    ? `<p class="klimaat-bodem">Bodemtype: <strong>${escape(k.bodemtype_label)}</strong> — we tonen alleen risico's die passen bij deze ondergrond</p>`
+    : '';
+
+  const cells = risks.map(r => renderKlimaatRisk(r)).filter(Boolean);
+  grid.innerHTML = `${bodemHeader}<div class="grid-2 klimaat-risks">${cells.join('')}</div>`;
+}
+
+function renderKlimaatRisk(r) {
+  if (!r) return '';
+  // Compose "waarde" text: pct / klasse X/5 / waarde + eenheid
+  let display = '—';
+  if (r.pct != null) display = `${r.pct}%`;
+  else if (r.klasse != null) display = `klasse ${r.klasse}/5`;
+  else if (r.waarde != null && r.eenheid) {
+    // Bij overstromingsdiepte: ook meters tonen
+    if (r.key === 'overstroming_diepte' && r.waarde >= 100) {
+      display = `${(r.waarde / 100).toFixed(1)} m`;
+    } else {
+      display = `${r.waarde} ${r.eenheid}`;
+    }
+  }
+
+  // Extra-regel: voor paalrot/verschilzetting de aantal-panden info
+  const extra = r.aantal_panden
+    ? `${r.aantal_panden.toLocaleString('nl-NL')} panden in ${escape(r.buurtnaam || 'de buurt')}`
+    : null;
+
+  // Reformat als field-blok zodat het qua stijl bij de rest past.
+  // We bouwen het handmatig omdat fieldHTML een 'indicator' met .value verwacht.
+  const ref = r.ref;
+  const parts = [`<div class="field"><span class="label">${escape(r.label)}</span><strong>${escape(display)}</strong>`];
+  if (ref) {
+    parts.push(`<p class="chip chip-${ref.chip_level}">${escape(ref.chip_text)}</p>`);
+    const refParts = [];
+    if (ref.nl_gemiddelde) refParts.push(`NL-gemiddelde: ${escape(ref.nl_gemiddelde)}`);
+    if (ref.norm) refParts.push(escape(ref.norm));
+    if (refParts.length) parts.push(`<p class="refline">${refParts.join(' · ')}</p>`);
+    if (ref.betekenis) parts.push(`<p class="meaning">${escape(ref.betekenis)}</p>`);
+  }
+  if (extra) parts.push(`<p class="hint">${extra}</p>`);
+  parts.push('</div>');
+  return parts.join('');
 }
 
 // ---- Geluid: bronnen-uitsplitsing als extra-regel (returnt inline string) ----

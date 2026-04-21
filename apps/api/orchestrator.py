@@ -1141,29 +1141,107 @@ def _build_geluid_ref(g: rivm_geluid.GeluidOpGevel) -> dict:
 
 
 def _build_klimaat(k: Optional[klimaat.Klimaatrisico]) -> dict:
+    """Bodem-aware klimaat-output.
+
+    De adapter retourneert nu een lijst Risico-objecten plus het bodemtype.
+    Wij serialiseren alleen het SUBSET dat relevant is voor dit bodemtype
+    plus universele risico's (hittestress, overstroming, wateroverlast).
+
+    Legacy-velden (paalrot {value, unit, ref, ...}, hittestress, waterdiepte_cm)
+    blijven gevuld voor backwards-compat met frontend-code die deze leest —
+    maar de NIEUWE `risicos` lijst is wat de UI primair rendert.
+    """
     if k is None:
         return {"available": False}
-    paalrot_pct = k.paalrot_pct_sterk_risico if k.paalrot_pct_sterk_risico is not None else k.paalrot_pct_mild_risico
-    out = {
+
+    # Map voor snelle lookup op key
+    by_key = {r.key: r for r in (k.risicos or [])}
+
+    # Filter op relevantie + bouw UI-klare dicts met referenties
+    relevante: list[dict] = []
+    for r in (k.risicos or []):
+        # Filter 1: alleen relevante risico's voor dit bodemtype (+universeel)
+        if not r.relevant:
+            continue
+        # Filter 2: skip bodemdaling < 1mm/jaar (praktisch geen signaal)
+        if r.key == "bodemdaling" and (r.waarde or 0) < 1.0:
+            continue
+        # Filter 3: skip overstroming klasse <2 (zeer laag = geen signaal)
+        if r.key == "overstroming" and (r.klasse or 0) < 2:
+            continue
+        # Filter 4: skip overstromingsdiepte < 10cm (te klein voor relevantie)
+        if r.key == "overstroming_diepte" and (r.waarde or 0) < 10:
+            continue
+
+        ref = _risico_ref(r)
+        entry = {
+            "key": r.key,
+            "label": r.label,
+            "klasse": r.klasse,
+            "pct": r.pct,
+            "waarde": r.waarde,
+            "eenheid": r.eenheid,
+            "aantal_panden": r.aantal_panden,
+            "buurtnaam": r.buurtnaam,
+            "ref": _as_ref(ref),
+        }
+        relevante.append(entry)
+
+    # Sorteer: warn eerst (voor zichtbaarheid), dan neutral, dan good
+    level_rank = {"warn": 0, "neutral": 1, "good": 2, None: 3}
+    relevante.sort(key=lambda x: level_rank.get((x.get("ref") or {}).get("chip_level"), 3))
+
+    # Legacy-velden voor backwards-compat met oude frontend-code
+    paalrot = by_key.get("paalrot")
+    hitte = by_key.get("hittestress")
+    water = by_key.get("wateroverlast")
+
+    out: dict = {
         "available": True,
+        "bodemtype_code": k.bodemtype_code,
+        "bodemtype_label": k.bodemtype_label,
+        "risicos": relevante,
+
+        # --- Legacy velden (oude renderer leest deze) ---
         "paalrot": {
-            "value": paalrot_pct,
+            "value": paalrot.pct if paalrot else None,
             "unit": "%",
-            "buurt": k.paalrot_buurtnaam,
-            "aantal_panden": k.paalrot_aantal_panden_in_buurt,
-            "pct_sterk": k.paalrot_pct_sterk_risico,
-            "pct_mild": k.paalrot_pct_mild_risico,
-            "ref": _as_ref(references.ref_paalrot(k.paalrot_pct_sterk_risico, k.paalrot_pct_mild_risico)),
-        },
+            "buurt": paalrot.buurtnaam if paalrot else None,
+            "aantal_panden": paalrot.aantal_panden if paalrot else None,
+            "pct_sterk": paalrot.pct if paalrot else None,
+            "pct_mild": paalrot.pct if paalrot else None,
+            "ref": _as_ref(references.ref_paalrot(paalrot.pct if paalrot else None, None)),
+        } if paalrot else None,
         "hittestress": {
-            "value": k.hittestress_klasse,
-            "label": k.hittestress_label,
-            "ref": _as_ref(references.ref_hittestress(k.hittestress_klasse)),
-        },
+            "value": hitte.klasse if hitte else None,
+            "label": klimaat.HITTE_LABELS.get(hitte.klasse) if hitte else None,
+            "ref": _as_ref(references.ref_hittestress(hitte.klasse if hitte else None)),
+        } if hitte else None,
     }
-    if k.waterdiepte_cm and k.waterdiepte_cm > 0:
-        out["waterdiepte_cm"] = k.waterdiepte_cm
+    if water and water.waarde:
+        out["waterdiepte_cm"] = int(round(water.waarde))
     return out
+
+
+def _risico_ref(r: "klimaat.Risico"):  # type: ignore[name-defined]
+    """Map Risico naar de juiste reference-functie op basis van key."""
+    if r.key == "paalrot":
+        return references.ref_paalrot(r.pct, None)
+    if r.key == "verschilzetting":
+        return references.ref_verschilzetting(r.pct)
+    if r.key == "hittestress":
+        return references.ref_hittestress(r.klasse)
+    if r.key == "wateroverlast":
+        return references.ref_wateroverlast_neerslag(r.waarde)
+    if r.key == "overstroming":
+        return references.ref_overstromingskans(r.klasse)
+    if r.key == "overstroming_diepte":
+        return references.ref_overstromingsdiepte(r.waarde)
+    if r.key == "droogte":
+        return references.ref_droogtestress(r.klasse)
+    if r.key == "bodemdaling":
+        return references.ref_bodemdaling(r.waarde)
+    return None
 
 
 def _provenance(buurtcode: str) -> list[dict]:
