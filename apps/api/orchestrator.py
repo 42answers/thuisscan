@@ -24,7 +24,7 @@ from typing import Optional
 
 import references
 import social_questions
-from adapters import bag, cbs, kadaster_woz, klimaat, leefbaarometer, pdok_locatie, politie, rivm_geluid, rivm_lki, rvo_ep, verkiezingen
+from adapters import bag, cbs, kadaster_woz, klimaat, leefbaarometer, overpass, pdok_locatie, politie, rivm_geluid, rivm_lki, rvo_ep, verkiezingen
 
 
 def _as_ref(r) -> Optional[dict]:
@@ -50,6 +50,7 @@ _BAG_TTL_S = 7 * 24 * 3600  # BAG muteert per pand zelden
 _POLITIE_TTL_S = 12 * 3600  # Politie publiceert maandelijks — 12u is strak genoeg
 _RIVM_TTL_S = 30 * 24 * 3600  # Luchtkwaliteit-jaargemiddelden wijzigen jaarlijks
 _KLIMAAT_TTL_S = 30 * 24 * 3600  # Klimaateffectatlas wordt jaarlijks geactualiseerd
+_OSM_TTL_S = 7 * 24 * 3600  # POI's verhuizen zelden; 7 dagen is ruim
 
 
 def _cache_get(key: str, ttl_s: int) -> Optional[object]:
@@ -101,17 +102,25 @@ async def scan(query: str) -> ScanResult:
     )
     pand, buurt = await asyncio.gather(bag_task, cbs_task)
 
-    # Stap 2b: Politie + uitgebreide voorzieningen (parallel).
+    # Stap 2b: Politie + voorzieningen (OSM primary + CBS fallback) parallel.
     # Politie hangt af van inwoners uit CBS; voorzieningen is onafhankelijk.
     inwoners = buurt.inwoners if buurt else None
     politie_task = _cached_fetch_politie(match.buurtcode or "", inwoners)
-    voorz_task = _cached_fetch_voorzieningen(
+    # Beide voorzieningen-bronnen tegelijk: OSM (nauwkeurig, vaak compleet
+    # voor publieke infrastructuur) + CBS (minder accuraat maar dekt alle
+    # privé-categorieën zoals huisartsen). Samenvoegen in post-processing:
+    # OSM primary, CBS alleen als aanvulling voor categorieën waar OSM stil is.
+    overpass_task = _cached_fetch_overpass(match.lat, match.lon)
+    cbs_voorz_task = _cached_fetch_voorzieningen(
         match.buurtcode or "", match.gemeentecode or ""
     )
     woz_trend_task = _cached_fetch_woz_trend(match.buurtcode or "")
-    misdrijven, voorzieningen_lijst, woz_trend = await asyncio.gather(
-        politie_task, voorz_task, woz_trend_task
+    misdrijven, osm_pois, cbs_voorz, woz_trend = await asyncio.gather(
+        politie_task, overpass_task, cbs_voorz_task, woz_trend_task
     )
+    # Merge OSM + CBS: OSM wint (heeft naam + precieze meters), CBS vult
+    # ontbrekende categorieën (huisartsenpost, buitenschoolse opvang, etc).
+    voorzieningen_lijst = _merge_voorzieningen(osm_pois, cbs_voorz)
 
     # Stap 2c: RVO EP-Online + TK2025-uitslag (beide synchroon, geen I/O)
     # + Kadaster WOZ (async — vereist API-key, retourneert None zonder).
@@ -241,6 +250,84 @@ async def _cached_fetch_woz_adres(
     if result is not None:
         _cache_set(key, result)
     return result
+
+
+async def _cached_fetch_overpass(lat: float, lon: float) -> list[overpass.POI]:
+    """OSM POI's rond (lat, lon) via Overpass API, met cache.
+
+    Cache-key gebruikt coord-100m rounding — POI's binnen hetzelfde 100m-grid
+    delen dezelfde POI-lijst (kleine afwijkingen in afstand zijn acceptabel).
+    """
+    if not (lat and lon):
+        return []
+    # 100m rounding via lat*1000 (≈111m) / lon*1000 (iets korter in NL)
+    key = f"osm:{round(lat * 1000)}_{round(lon * 1000)}"
+    hit = _cache_get(key, _OSM_TTL_S)
+    if isinstance(hit, list):
+        return hit
+    try:
+        result = await overpass.fetch_poi_nearby(lat, lon)
+    except Exception:
+        return []
+    if result:
+        _cache_set(key, result)
+    return result
+
+
+def _merge_voorzieningen(
+    osm_pois: list[overpass.POI], cbs_voorz: list[dict]
+) -> list[dict]:
+    """Combineer OSM POI's en CBS-gemeente-gemiddeldes tot één lijst.
+
+    Strategie:
+      1. OSM POI's → altijd meenemen (met naam + precieze meters)
+      2. CBS-types die NIET in OSM zitten → als fallback (gemeente-gemiddelde)
+         met chip die duidelijk maakt dat het een gemiddelde is, niet specifiek.
+
+    Output-formaat gelijk aan het oorspronkelijke fetch_voorzieningen
+    (type/km/emoji) + extra velden (naam, meters, source).
+    """
+    out: list[dict] = []
+    osm_types = {p.key for p in osm_pois}
+    # CBS-categorieën die we onderdrukken als OSM een equivalent heeft.
+    # 'overstapstation' (intercity) is in NL vrijwel synoniem met 'treinstation'
+    # voor de meeste mensen — de OSM-entry geeft al naam + precieze afstand.
+    # Het CBS-gemeente-gemiddelde zou verwarrend naast de concrete waarde staan.
+    # Key = CBS-type, value = set van OSM-types die het vervangen.
+    cbs_suppression = {
+        "overstapstation": {"treinstation"},
+    }
+    # 1. OSM POIs → primary lijst
+    for p in osm_pois:
+        out.append({
+            "type": p.key,
+            "label": p.label,          # bv 'Supermarkt' (overschrijft CBS-label)
+            "categorie": p.categorie,
+            "emoji": p.emoji,
+            "naam": p.naam,            # bv 'Amsterdam Centraal'
+            "meters": p.meters,
+            "km": round(p.meters / 1000.0, 2),
+            "source": "osm",
+        })
+    # 2. CBS-categorieën die OSM niet heeft → fallback
+    # (huisartsenpost, buitenschoolse opvang, fysiotherapeut, etc.)
+    for v in cbs_voorz:
+        if v["type"] in osm_types:
+            continue  # OSM heeft het al preciezer
+        # Ook onderdrukken als een OSM-equivalent al aanwezig is
+        equivalents = cbs_suppression.get(v["type"], set())
+        if equivalents & osm_types:
+            continue
+        out.append({
+            "type": v["type"],
+            "emoji": v.get("emoji", "•"),
+            "km": v["km"],
+            "meters": int(round(v["km"] * 1000)),
+            "naam": None,
+            "source": "cbs",
+        })
+    out.sort(key=lambda x: x.get("meters") or x.get("km", 0) * 1000)
+    return out
 
 
 async def _cached_fetch_voorzieningen(
@@ -568,13 +655,20 @@ def _build_buren(
 
 
 def _build_voorzieningen(lijst: list[dict]) -> dict:
-    """Voorzieningen-lijst gesorteerd van dichtbij naar ver, met categorie
-    per item zodat de frontend kan filteren op 'Kinderen', 'Zorg', etc.
+    """Voorzieningen-lijst gesorteerd van dichtbij naar ver.
+
+    Per item:
+      - type, label, categorie, emoji (voor filter-chips in UI)
+      - km + meters (meters wint bij OSM, bij CBS is meters afgeleid)
+      - naam (OSM) of None (CBS-gemeente-gemiddelde)
+      - source ('osm' / 'cbs') zodat de UI kan tonen "gemeente-gemiddelde"
+        als disclaimer bij CBS-items
     """
     if not lijst:
         return {"available": False}
-    # Pretty labels + categorie-tag per type. Categorieen = filter-groepen.
-    labels = {
+    # Fallback-labels voor types die alleen uit CBS komen (niet uit OSM);
+    # OSM zet al label+categorie direct in het dict.
+    cbs_labels = {
         "supermarkt":              ("Supermarkt",              "boodschappen"),
         "dagelijkse_levensmiddelen":("Buurtsuper / dagwinkel", "boodschappen"),
         "huisarts":                ("Huisarts",                "zorg"),
@@ -602,13 +696,22 @@ def _build_voorzieningen(lijst: list[dict]) -> dict:
     }
     items = []
     for v in lijst:
-        label, cat = labels.get(v["type"], (v["type"].replace("_", " ").title(), "overig"))
+        # OSM levert label + categorie al mee; CBS-entries nog niet.
+        label = v.get("label")
+        cat = v.get("categorie")
+        if not label:
+            label, cat = cbs_labels.get(
+                v["type"], (v["type"].replace("_", " ").title(), "overig")
+            )
         items.append({
             "type": v["type"],
             "label": label,
             "categorie": cat,
             "emoji": v.get("emoji", "•"),
             "km": v["km"],
+            "meters": v.get("meters"),
+            "naam": v.get("naam"),
+            "source": v.get("source", "cbs"),
         })
     return {"available": True, "items": items}
 

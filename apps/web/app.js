@@ -953,14 +953,28 @@ function renderVoorzItems() {
   }
   const maxKm = Math.min(10, Math.max(...items.map(v => v.km || 0)));
   el.innerHTML = items.map((v) => {
-    const km = v.km;
+    // Meters heeft voorrang (OSM exact). Km is altijd aanwezig als fallback.
+    const meters = v.meters != null ? v.meters : (v.km ? Math.round(v.km * 1000) : 0);
+    const km = v.km || 0;
     const widthPct = maxKm > 0 ? Math.max(2, Math.min(100, 100 * km / maxKm)) : 0;
-    const display = km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
-    const nearClass = km <= 0.5 ? 'v-near' : km <= 2 ? 'v-mid' : 'v-far';
+    const display = meters < 1000
+      ? `${meters} m`
+      : `${(meters / 1000).toFixed(meters < 10000 ? 1 : 0)} km`;
+    const nearClass = meters <= 500 ? 'v-near' : meters <= 2000 ? 'v-mid' : 'v-far';
+    // Naam (OSM) onder het label — bv. "Treinstation — Amsterdam Centraal"
+    // Bij CBS-fallback tonen we een "gemeente-gemiddelde" disclaimer.
+    const naamHtml = v.naam
+      ? `<span class="voorz-naam">${escape(v.naam)}</span>`
+      : (v.source === 'cbs'
+          ? '<span class="voorz-naam voorz-approx">gemeente-gemiddelde</span>'
+          : '');
     return `
       <li class="voorz-item ${nearClass}">
         <span class="voorz-emoji">${v.emoji || '•'}</span>
-        <span class="voorz-label">${escape(v.label || v.type)}</span>
+        <span class="voorz-main">
+          <span class="voorz-label">${escape(v.label || v.type)}</span>
+          ${naamHtml}
+        </span>
         <span class="voorz-bar"><span class="voorz-bar-fill" style="width:${widthPct}%"></span></span>
         <span class="voorz-dist">${display}</span>
       </li>
