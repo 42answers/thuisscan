@@ -96,6 +96,10 @@ def fetch_label(postcode: str, huisnummer: str, toevoeging: str = "") -> Optiona
             (pc, hn, tv, tv),
         )
         row = cur.fetchone()
+    except sqlite3.DatabaseError:
+        # DB is gecorrupt of in upload/rename: gedraag je als 'geen label'
+        # zodat de hele scan niet crasht. Zodra upload klaar is werkt 't weer.
+        return None
     finally:
         conn.close()
 
