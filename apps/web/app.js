@@ -359,8 +359,8 @@ async function renderMap(d) {
   const pandId = (d.woning && d.woning.bag_pand_id) || null;
   if (pandId) _prefetchPand(pandId);
 
-  // Reset tabs: Kadaster is default — neutrale kaart met pand-outline
-  _activateTab('map');
+  // Reset tabs: Google Maps is default — bekend + rijk met POIs/wegennamen
+  _activateTab('gmaps');
 
   // Wacht tot MapLibre geladen is (script had `defer`)
   if (typeof maplibregl === 'undefined') {
@@ -414,8 +414,36 @@ function _activateTab(view) {
   // Lazy-load de inhoud van de tab zodra hij zichtbaar wordt
   if (view === 'streetview') _loadStreetView();
   if (view === 'satellite') _loadSatellite();
+  if (view === 'gmaps') _loadGoogleMaps();
   // Resize kaart wanneer we terugkomen (MapLibre heeft dit nodig na hidden)
   if (view === 'map' && _map) setTimeout(() => _map.resize(), 50);
+}
+
+function _loadGoogleMaps() {
+  const pane = document.getElementById('map-gmaps');
+  if (!pane || !_mapCurrentLatLon) return;
+  const { lat, lon, displayName } = _mapCurrentLatLon;
+  const key = window.GOOGLE_MAPS_API_KEY;
+  if (!key) {
+    pane.innerHTML = `
+      <div class="map-fallback">
+        <p>Google Maps weergave vereist een Embed-key.</p>
+        <a class="map-btn" target="_blank" rel="noopener"
+           href="https://www.google.com/maps?q=${encodeURIComponent(displayName)}">
+          Open in Google Maps ↗
+        </a>
+      </div>`;
+    return;
+  }
+  const wanted = `gm:${lat},${lon}`;
+  if (pane.dataset.loaded === wanted) return;
+  pane.dataset.loaded = wanted;
+  // place-mode: Google kaart met marker op het adres + POIs + wegennamen
+  const url = `https://www.google.com/maps/embed/v1/place`
+    + `?key=${encodeURIComponent(key)}`
+    + `&q=${encodeURIComponent(displayName)}`
+    + `&zoom=17`;
+  pane.innerHTML = `<iframe loading="lazy" allowfullscreen src="${url}"></iframe>`;
 }
 
 // Tab-klik handlers (eenmaal binden bij page load)

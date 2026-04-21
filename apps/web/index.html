@@ -36,16 +36,18 @@
 
     <!-- Kaart + pand-outline (met inline Street View / Satelliet toggle) -->
     <section class="mapcard" id="s-map" hidden>
-      <!-- Toggle-bar: Kadaster is default (meest neutraal/informatief) -->
+      <!-- Toggle-bar: Google Maps (default) → Satelliet → Street View → Kadaster -->
       <div class="map-tabs">
-        <button class="map-tab active" data-view="map">🗺️ Kadaster</button>
+        <button class="map-tab active" data-view="gmaps">🗺️ Google Maps</button>
         <button class="map-tab" data-view="satellite">🛰️ Satelliet</button>
         <button class="map-tab" data-view="streetview">📷 Street View</button>
+        <button class="map-tab" data-view="map">🏛️ Kadaster</button>
       </div>
       <div class="map-viewport">
-        <div id="map" class="map-pane active"></div>
+        <div id="map-gmaps" class="map-pane active"></div>
         <div id="map-satellite" class="map-pane"></div>
         <div id="map-streetview" class="map-pane"></div>
+        <div id="map" class="map-pane"></div>
       </div>
     </section>
 
