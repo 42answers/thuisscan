@@ -496,17 +496,30 @@ function renderVragen(vragen) {
   el.innerHTML = vragen.map(v => renderVraag(v)).join('');
 }
 
+// Map score_5 (1-5) naar CSS-level voor kleuring
+function _levelForScore(s) {
+  if (s >= 4) return 'good';
+  if (s <= 2) return 'warn';
+  return 'neutral';
+}
+
 function renderVraag(v) {
   const icon = escape(v.icoon || '•');
-  const verdictClass = `vraag-${v.verdict || 'neutral'}`;
-  const scoreLabel = escape(v.score_label || '');
   const vraag = escape(v.vraag || '');
   const samenvatting = escape(v.samenvatting || '');
+  const score10 = v.score_10 != null ? v.score_10 : null;
+  const label = escape(v.label || v.score_label || '');
+  const advies = escape(v.advies || '');
 
-  // Elke categorie = een 'bakje' met eigen verdict-dot + samenvatting +
-  // een details-disclosure met de onderliggende factoren.
+  // Kleur-thema van de vraag-card = agg van de categorieën (score 10)
+  const vraagLevel = score10 != null
+    ? (score10 >= 7 ? 'good' : score10 >= 4 ? 'neutral' : 'warn')
+    : 'neutral';
+
   const categorieen = (v.categorieen || []).map(c => {
-    const lvl = c.verdict || 'neutral';
+    const s = c.score_5 || 3;
+    const lvl = _levelForScore(s);
+    const pct = (s / 5) * 100;
     const factoren = (c.factoren || []).map(f => `
       <li class="vraag-factor vf-${f.level || 'neutral'}">
         <span class="vf-dot"></span>
@@ -516,25 +529,41 @@ function renderVraag(v) {
     return `
       <details class="cat cat-${lvl}">
         <summary>
-          <span class="cat-dot"></span>
-          <span class="cat-icon">${escape(c.icoon || '•')}</span>
-          <span class="cat-naam">${escape(c.naam)}</span>
-          <span class="cat-sam">${escape(c.samenvatting || '')}</span>
-          <span class="cat-chevron">▾</span>
+          <div class="cat-row">
+            <span class="cat-icon">${escape(c.icoon || '•')}</span>
+            <span class="cat-naam">${escape(c.naam)}</span>
+            <span class="cat-label">${escape(c.label || '')}</span>
+          </div>
+          <div class="cat-bar-row">
+            <span class="cat-bar"><span class="cat-bar-fill dim-${lvl}" style="width:${pct}%"></span></span>
+            <span class="cat-score">${s}<span class="cat-score-max">/5</span></span>
+          </div>
+          <p class="cat-sam">${escape(c.samenvatting || '')}</p>
         </summary>
         <ul class="vraag-factoren">${factoren}</ul>
       </details>`;
   }).join('');
 
+  const scoreBadge = score10 != null
+    ? `<span class="vraag-score10">${score10}<span class="vraag-score10-max">/10</span></span>`
+    : '';
+  const adviesBlock = advies ? `
+    <div class="vraag-advies">
+      <span class="vraag-advies-icoon">💡</span>
+      <p>${advies}</p>
+    </div>` : '';
+
   return `
-    <article class="vraag-card ${verdictClass}">
+    <article class="vraag-card vraag-${vraagLevel}">
       <header class="vraag-header">
         <span class="vraag-icoon">${icon}</span>
         <h3 class="vraag-title">${vraag}</h3>
-        <span class="vraag-badge">${scoreLabel}</span>
+        ${scoreBadge}
+        <span class="vraag-badge">${label}</span>
       </header>
       <p class="vraag-sam">${samenvatting}</p>
       <div class="vraag-cats">${categorieen}</div>
+      ${adviesBlock}
     </article>
   `;
 }
