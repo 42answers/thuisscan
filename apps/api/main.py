@@ -133,6 +133,35 @@ async def scan_endpoint(q: str = Query(..., min_length=3, description="Adres")) 
     return orchestrator.result_as_dict(result)
 
 
+@app.get("/klimaat")
+async def klimaat_endpoint(
+    lat: float = Query(..., description="WGS84 latitude"),
+    lon: float = Query(..., description="WGS84 longitude"),
+    rd_x: float = Query(..., description="RD X-coordinaat"),
+    rd_y: float = Query(..., description="RD Y-coordinaat"),
+) -> dict:
+    """Klimaatrisico bodem-aware (CAS — 8 sub-calls, 500-1500ms cold).
+
+    Aparte endpoint omdat deze te langzaam is voor de main /scan flow.
+    """
+    try:
+        return await orchestrator.fetch_klimaat_section(lat, lon, rd_x, rd_y)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Klimaat faalde: {e}") from e
+
+
+@app.get("/bereikbaarheid")
+async def bereikbaarheid_endpoint(
+    lat: float = Query(..., description="WGS84 latitude"),
+    lon: float = Query(..., description="WGS84 longitude"),
+) -> dict:
+    """Bereikbaarheid (Overpass route-relations + werkcentra, 2-5s cold)."""
+    try:
+        return await orchestrator.fetch_bereikbaarheid_section(lat, lon)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Bereikbaarheid faalde: {e}") from e
+
+
 @app.get("/voorzieningen")
 async def voorzieningen_endpoint(
     lat: float = Query(..., description="WGS84 latitude van het adres"),

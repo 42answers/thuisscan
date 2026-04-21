@@ -132,15 +132,15 @@ async def scan(query: str) -> ScanResult:
 
     # Stap 2d: RIVM luchtkwaliteit + Klimaateffectatlas + Leefbaarometer
     # (allemaal punt-queries op externe services; parallel).
+    # Klimaat (CAS — 8 parallel sub-calls, ~500-1500ms) en bereikbaarheid
+    # (Overpass — 2-5s cold) zijn de zwaarste externe deps. Verplaats naar
+    # aparte /klimaat en /bereikbaarheid endpoints zodat de hoofd-scan
+    # niet wacht. Hier alleen lucht + leefbaarheid + geluid (sneller).
     lucht_task = _cached_fetch_lucht(match.rd_x, match.rd_y)
-    klimaat_task = _cached_fetch_klimaat(
-        match.lat, match.lon, match.rd_x, match.rd_y
-    )
     leef_task = _cached_fetch_leefbaarheid(match.rd_x, match.rd_y)
     geluid_task = _cached_fetch_geluid(match.rd_x, match.rd_y)
-    bereik_task = _cached_fetch_bereikbaarheid(match.lat, match.lon)
-    lucht, klimaatrisico, leefbaarheid, geluid, bereik = await asyncio.gather(
-        lucht_task, klimaat_task, leef_task, geluid_task, bereik_task
+    lucht, leefbaarheid, geluid = await asyncio.gather(
+        lucht_task, leef_task, geluid_task
     )
 
     # Buurtnaam uit Leefbaarometer: handig voor het adres-kopje
@@ -171,9 +171,11 @@ async def scan(query: str) -> ScanResult:
         voorzieningen={"available": False, "pending": True},
         veiligheid=_build_veiligheid(misdrijven),
         leefkwaliteit=_build_leefkwaliteit(lucht, geluid),
-        klimaat=_build_klimaat(klimaatrisico),
+        # Klimaat + bereikbaarheid worden lazy geladen via aparte endpoints.
+        # Frontend toont skeleton tot data binnen is.
+        klimaat={"available": False, "pending": True},
         onderwijs=_build_onderwijs(match.lat, match.lon),
-        bereikbaarheid=_build_bereikbaarheid(bereik),
+        bereikbaarheid={"available": False, "pending": True},
         sociale_vragen=[],  # gevuld in result_as_dict na serialisatie
         provenance=_provenance(match.buurtcode or ""),
     )
@@ -281,6 +283,28 @@ async def _cached_fetch_woz_adres(
     if result is not None:
         _cache_set(key, result)
     return result
+
+
+async def fetch_klimaat_section(
+    lat: float, lon: float, rd_x: float, rd_y: float
+) -> dict:
+    """Los endpoint: klimaatrisico bodem-aware (8 CAS calls).
+
+    Wordt door /klimaat in main.py aangeroepen — niet door scan().
+    Deze call is duur (~500-1500ms cold) en hoort dus achter een aparte
+    endpoint zodat de hoofdpagina snel toont.
+    """
+    k = await _cached_fetch_klimaat(lat, lon, rd_x, rd_y)
+    return _build_klimaat(k)
+
+
+async def fetch_bereikbaarheid_section(lat: float, lon: float) -> dict:
+    """Los endpoint: bereikbaarheid (Overpass route-relations + werkcentra).
+
+    Overpass cold-call duurt 2-5s. Cached na 100ms.
+    """
+    b = await _cached_fetch_bereikbaarheid(lat, lon)
+    return _build_bereikbaarheid(b)
 
 
 async def fetch_voorzieningen(

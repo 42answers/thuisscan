@@ -221,6 +221,21 @@ function render(d) {
     renderVoorzieningenList(d.voorzieningen);
   }
 
+  // Klimaat en bereikbaarheid zijn ook lazy (te traag voor main /scan).
+  // Beide krijgen een mini-loading-state en vullen in wanneer data terug is.
+  if (d.klimaat && d.klimaat.pending) {
+    renderKlimaatSkeleton();
+    loadKlimaatAsync(d.adres);
+  } else {
+    renderKlimaat(d.klimaat);
+  }
+  if (d.bereikbaarheid && d.bereikbaarheid.pending) {
+    renderBereikbaarheidSkeleton();
+    loadBereikbaarheidAsync(d.adres);
+  } else {
+    renderBereikbaarheid(d.bereikbaarheid);
+  }
+
   // Sectie 3: buren — layout herzien om karakter van de buurt te tonen
   // i.p.v. inhoudsloze getallen als totaal-inwoners en dichtheid.
   // Grid (2×2): huishoudensverdeling + demografie.
@@ -279,18 +294,12 @@ function render(d) {
     geluidHTML,
   ]);
 
-  // Sectie 6: klimaat — bodem-aware. De backend retourneert nu een lijst
-  // 'risicos' gefilterd op wat relevant is voor deze locatie (veenpaalrot
-  // alleen bij veen, verschilzetting bij zand, overstroming bij rivier/zee
-  // etc). Hittestress is universeel.
-  const k = d.klimaat || {};
-  renderKlimaat(k);
+  // (Sectie 6 klimaat wordt lazy geladen, zie hierboven.)
 
   // Sectie 7: kinderen & onderwijs
   renderOnderwijs(d.onderwijs);
 
-  // Sectie 8: bereikbaarheid
-  renderBereikbaarheid(d.bereikbaarheid);
+  // (Sectie 8 bereikbaarheid wordt lazy geladen, zie hierboven.)
 
   // Provenance
   const provs = d.provenance || [];
@@ -583,6 +592,83 @@ function renderOnderwijs(o) {
 function formatMeters(m) {
   if (m == null) return '—';
   return m < 1000 ? `${m} m` : `${(m / 1000).toFixed(1)} km`;
+}
+
+// ---- Async loaders voor klimaat + bereikbaarheid ----
+// Beide secties zijn te traag voor main /scan (klimaat: 8 CAS-calls ~1s;
+// bereikbaarheid: Overpass 2-5s cold). Ze krijgen eigen endpoints en worden
+// in de achtergrond opgehaald nadat de hoofdpagina al getoond is.
+
+function renderKlimaatSkeleton() {
+  const grid = document.getElementById('s-klimaat-grid');
+  if (!grid) return;
+  // 4 skeleton-kaarten (2 grid-cellen × 2 rijen)
+  const rows = Array.from({ length: 4 }, () => `
+    <div class="field skel-field">
+      <span class="skel-bar skel-label"></span>
+      <span class="skel-bar skel-value"></span>
+      <span class="skel-bar skel-chip"></span>
+      <span class="skel-bar skel-meaning"></span>
+    </div>
+  `).join('');
+  grid.innerHTML = rows;
+}
+
+async function loadKlimaatAsync(adres) {
+  if (!adres || !adres.wgs84 || !adres.rd) return;
+  const params = new URLSearchParams({
+    lat: String(adres.wgs84.lat),
+    lon: String(adres.wgs84.lon),
+    rd_x: String(adres.rd.x),
+    rd_y: String(adres.rd.y),
+  });
+  try {
+    const r = await fetch(`${API_BASE}/klimaat?${params.toString()}`);
+    if (!r.ok) throw new Error(`API ${r.status}`);
+    const k = await r.json();
+    renderKlimaat(k);
+  } catch (e) {
+    const grid = document.getElementById('s-klimaat-grid');
+    if (grid) grid.innerHTML = `<p class="muted small">Klimaat-data tijdelijk niet beschikbaar.</p>`;
+  }
+}
+
+function renderBereikbaarheidSkeleton() {
+  const section = document.getElementById('s-bereikbaarheid');
+  const host = document.getElementById('s-bereikbaarheid-content');
+  if (!section || !host) return;
+  host.innerHTML = `
+    <ul class="bereik-list">
+      ${Array.from({ length: 4 }, () => `
+        <li class="bereik-item">
+          <span class="bereik-icoon">·</span>
+          <span class="bereik-main">
+            <span class="skel-bar skel-label"></span>
+            <span class="skel-bar skel-sub"></span>
+          </span>
+          <span class="skel-bar skel-dist"></span>
+        </li>
+      `).join('')}
+    </ul>
+  `;
+  section.hidden = false;
+}
+
+async function loadBereikbaarheidAsync(adres) {
+  if (!adres || !adres.wgs84) return;
+  const params = new URLSearchParams({
+    lat: String(adres.wgs84.lat),
+    lon: String(adres.wgs84.lon),
+  });
+  try {
+    const r = await fetch(`${API_BASE}/bereikbaarheid?${params.toString()}`);
+    if (!r.ok) throw new Error(`API ${r.status}`);
+    const b = await r.json();
+    renderBereikbaarheid(b);
+  } catch (e) {
+    const host = document.getElementById('s-bereikbaarheid-content');
+    if (host) host.innerHTML = `<p class="muted small">Bereikbaarheid-data tijdelijk niet beschikbaar.</p>`;
+  }
 }
 
 // ---- Sectie 8 · Bereikbaarheid (OV-halten + route-tellingen) ----

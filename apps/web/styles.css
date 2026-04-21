@@ -1194,6 +1194,15 @@ main {
 .skel-label { width: 55%; }
 .skel-sub { width: 35%; height: 8px; margin-top: 5px; }
 .skel-dist { width: 48px; height: 10px; margin-left: auto; }
+.skel-value { width: 40%; height: 18px; margin-top: 0.3rem; }
+.skel-chip  { width: 30%; height: 14px; margin-top: 0.4rem; border-radius: 999px; }
+.skel-meaning { width: 80%; height: 8px; margin-top: 0.5rem; }
+.skel-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.2rem 0;
+}
 
 @keyframes skel-shimmer {
   0%   { background-position: 100% 0; }
