@@ -476,27 +476,25 @@ function _loadStreetView() {
   //     automatisch; resultaat is vaak al redelijk gericht op de woning.
   //     Wanneer polygoon binnenkomt, herlaadt _prefetchPand() dit iframe
   //     met de juiste heading (camera draait alsnog naar het pand).
-  // Centroid beschikbaar → camera-positie ~35m uit pand, heading richting pand.
-  // Grotere offset (35m ipv 20m) zorgt dat Google een straat-pano pakt en niet
-  // een verdwaalde binnen-pano/zwarte view. Zonder centroid: adres-coords +
-  // default heading; Google kiest dichtstbijzijnde buiten-pano.
+  // Eerdere implementatie offsette 35m naar het zuiden als "straat-punt";
+  // bij straten die anders lopen landde dat bij een verkeerd huisnummer.
+  // Nieuwe aanpak: geef Google het EXACTE adres-coord; Google's pano-lookup
+  // vindt zelf de dichtstbijzijnde buitenpano (is bijna altijd correct).
+  // Heading berekenen we uit pand-polygoon als die er is — dan wijst de
+  // camera meteen naar het pand. Anders laat Google z'n default behouden.
   const centroid = _mapPandCentroid;
-  let streetLat = lat, streetLon = lon, heading = 0;
+  let heading = 0;
   if (centroid) {
-    const [cLat, cLon] = centroid;
-    const offsetM = 35;
-    streetLat = cLat - (offsetM / 111000);
-    streetLon = cLon;
-    heading = _bearing(streetLat, streetLon, cLat, cLon);
+    // Bearing van adres-coord naar pand-centroid — klein verschil maar
+    // geeft Google een hint welke kant op te kijken na 't vinden van de pano.
+    heading = _bearing(lat, lon, centroid[0], centroid[1]);
   }
-  const wanted = `sv:${streetLat.toFixed(6)},${streetLon.toFixed(6)}:${Math.round(heading)}`;
+  const wanted = `sv:${lat.toFixed(6)},${lon.toFixed(6)}:${Math.round(heading)}`;
   if (pane.dataset.loaded === wanted) return;
   pane.dataset.loaded = wanted;
-  // source=outdoor dwingt Google om alleen gemarkeerde buitenpano's te tonen
-  // (geen interieur-pano's, museum-views etc.) — veel betrouwbaarder resultaat.
   const url = `https://www.google.com/maps/embed/v1/streetview`
     + `?key=${encodeURIComponent(key)}`
-    + `&location=${streetLat},${streetLon}`
+    + `&location=${lat},${lon}`
     + `&heading=${Math.round(heading)}`
     + `&pitch=5&fov=90`
     + `&source=outdoor`;
