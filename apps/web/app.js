@@ -357,8 +357,9 @@ async function renderMap(d) {
   if (!_map) {
     _map = new maplibregl.Map({
       container: 'map',
-      // PDOK-BRT als vector style — gratis, NL-optimized, geen key
-      style: 'https://api.pdok.nl/kadaster/achtergrondkaarten/styles/v2_0/BRT.json',
+      // PDOK BRT Achtergrondkaart (Mapbox-style, WebMercator) — gratis, geen key.
+      // Endpoint geverifieerd apr 2026: /kadaster/brt-achtergrondkaart/ogc/v1/
+      style: 'https://api.pdok.nl/kadaster/brt-achtergrondkaart/ogc/v1/styles/standaard__webmercatorquad?f=mapbox',
       center: [lon, lat],
       zoom: 17,
       attributionControl: { compact: true },
