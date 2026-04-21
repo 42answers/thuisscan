@@ -238,6 +238,12 @@ function render(d) {
     const leefHTML = renderLeeftijdsprofiel(b.leeftijdsprofiel);
     if (leefHTML) grid.push(leefHTML);
   }
+  // Migratieachtergrond (peiljaar 2020) als stacked-bar row (full-width).
+  // Kan scope=buurt/wijk/gemeente zijn afhankelijk van beschikbaarheid.
+  if (b.migratieachtergrond) {
+    const migHTML = renderMigratieachtergrond(b.migratieachtergrond);
+    if (migHTML) grid.push(migHTML);
+  }
   // TK2023-verkiezing top-3 als aparte full-width row onder de grid
   if (b.verkiezing_tk2023) {
     grid.push(renderVerkiezing(b.verkiezing_tk2023));
@@ -409,6 +415,48 @@ function renderLeeftijdsprofiel(leef) {
   return `<div class="field field-fullwidth eigendom">
     <span class="label">Leeftijdsmix buurt${scopeSuffix}</span>
     <div class="eig-bar" aria-label="Verdeling 0-15, 15-65, 65+ jaar">${bar}</div>
+    <div class="eig-legend">${legend}</div>
+    ${refHTML}
+  </div>`;
+}
+
+// ---- Migratieachtergrond als stacked bar (NL / Westers / Niet-westers) ----
+// Peiljaar 2020 (laatste jaar waarin CBS dit op buurt-niveau publiceerde).
+// Scope kan buurt/wijk/gemeente zijn — tonen we duidelijk als label.
+function renderMigratieachtergrond(mig) {
+  if (!mig) return '';
+  const nl = mig.pct_nederlands;
+  const w = mig.pct_westers;
+  const nw = mig.pct_niet_westers;
+  if (nl == null && w == null && nw == null) return '';
+  const segments = [
+    { key: 'nl',  label: 'Nederlands',   pct: nl, color: 'mig-nl' },
+    { key: 'w',   label: 'Westers',      pct: w,  color: 'mig-w' },
+    { key: 'nw',  label: 'Niet-westers', pct: nw, color: 'mig-nw' },
+  ].filter(s => s.pct != null && s.pct > 0);
+  const bar = segments.map(s =>
+    `<span class="eig-seg ${s.color}" style="flex:${s.pct}"
+      title="${escape(s.label)}: ${s.pct}%"></span>`
+  ).join('');
+  const legend = segments.map(s =>
+    `<span class="eig-leg"><span class="eig-dot ${s.color}"></span>${escape(s.label)} <strong>${s.pct}%</strong></span>`
+  ).join('');
+  const scope = mig.scope || 'buurt';
+  const scopeSuffix = scope !== 'buurt'
+    ? ` <span class="scope-inline" title="op ${escape(scope)}-niveau gepubliceerd">(${escape(scope)})</span>`
+    : '';
+  const peilSuffix = mig.peiljaar
+    ? ` <span class="scope-inline" title="CBS publiceert dit veld niet meer op buurt-niveau sinds 2021">(peiljaar ${escape(mig.peiljaar)})</span>`
+    : '';
+  const ref = mig.ref;
+  const refHTML = ref ? `
+    <p class="chip chip-${ref.chip_level}">${escape(ref.chip_text)}</p>
+    ${ref.betekenis ? `<p class="meaning">${escape(ref.betekenis)}</p>` : ''}
+    ${ref.nl_gemiddelde ? `<p class="refline">${escape(ref.nl_gemiddelde)}</p>` : ''}
+  ` : '';
+  return `<div class="field field-fullwidth eigendom">
+    <span class="label">Migratieachtergrond${scopeSuffix}${peilSuffix}</span>
+    <div class="eig-bar" aria-label="Verdeling Nederlands, Westers, Niet-westers">${bar}</div>
     <div class="eig-legend">${legend}</div>
     ${refHTML}
   </div>`;

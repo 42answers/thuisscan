@@ -809,6 +809,62 @@ def ref_huishoudensgrootte(grootte: Optional[float]) -> Optional[Reference]:
     )
 
 
+def ref_migratieachtergrond(
+    pct_nederlands: Optional[float],
+    pct_westers: Optional[float],
+    pct_niet_westers: Optional[float],
+) -> Optional[Reference]:
+    """Karakterisering van culturele samenstelling van de wijk (peiljaar 2020).
+
+    Geen goed/slecht oordeel — we beschrijven hoe gemengd de wijk is.
+    NL-gemiddelde 2020: ~76% Nederlands, ~10% westers, ~14% niet-westers.
+
+    Categorieën:
+      - Homogeen NL-achtergrond (>85% NL)
+      - Gemengd met internationale inslag (NL 65-85%, westers hoog)
+      - Sterk gemengde wijk (NL < 60%, hoog aandeel niet-westers)
+      - Dominant niet-westers (niet_westers > 45%)
+    """
+    if pct_nederlands is None and pct_westers is None and pct_niet_westers is None:
+        return None
+    nl = pct_nederlands or 0
+    w = pct_westers or 0
+    nw = pct_niet_westers or 0
+
+    if nw >= 45:
+        chip, msg = "overwegend niet-westerse mix", (
+            "Grote groep bewoners met niet-westerse migratieachtergrond. "
+            "Kenmerkend voor sommige wijken in de grote steden."
+        )
+    elif nl >= 85:
+        chip, msg = "overwegend Nederlandse achtergrond", (
+            "Weinig culturele diversiteit. Typisch voor kleinere gemeenten "
+            "en dorpen buiten de Randstad."
+        )
+    elif nl >= 70 and w >= 10:
+        chip, msg = "Nederlands met internationale inslag", (
+            "Overwegend Nederlandse bevolking met een internationale "
+            "component (expats, EU-migranten)."
+        )
+    elif nl < 55 and nw >= 25:
+        chip, msg = "sterk cultureel gemengd", (
+            "Gemengde wijk met veel verschillende achtergronden. Typisch "
+            "voor stadswijken met grote internationale aanwezigheid."
+        )
+    else:
+        chip, msg = "gemengde samenstelling", (
+            "Mix van Nederlandse, westerse en niet-westerse achtergronden "
+            "zonder één dominante groep."
+        )
+    return Reference(
+        chip_level="neutral",
+        chip_text=chip,
+        nl_gemiddelde="NL: ~76% Nederlands · ~10% westers · ~14% niet-westers",
+        norm="peiljaar 2020",
+        betekenis=msg,
+    )
+
+
 def ref_leeftijdsprofiel(
     pct_jong: Optional[float],
     pct_midden: Optional[float],

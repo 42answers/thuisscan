@@ -102,15 +102,19 @@ async def scan(query: str) -> ScanResult:
     )
     pand, buurt = await asyncio.gather(bag_task, cbs_task)
 
-    # Stap 2b: Politie + WOZ-trend parallel.
+    # Stap 2b: Politie + WOZ-trend + migratieachtergrond parallel.
     # Voorzieningen worden NIET hier opgehaald — OSM via Overpass is de
     # traagste externe dep (~3-6s cold). In plaats daarvan biedt de API
     # een aparte /voorzieningen endpoint die de frontend na render aanroept.
-    # Zo toont de hoofdpagina binnen ~1s, en schuiven voorzieningen later in.
     inwoners = buurt.inwoners if buurt else None
     politie_task = _cached_fetch_politie(match.buurtcode or "", inwoners)
     woz_trend_task = _cached_fetch_woz_trend(match.buurtcode or "")
-    misdrijven, woz_trend = await asyncio.gather(politie_task, woz_trend_task)
+    migratie_task = _cached_fetch_migratie(
+        match.buurtcode or "", match.wijkcode, match.gemeentecode
+    )
+    misdrijven, woz_trend, migratie = await asyncio.gather(
+        politie_task, woz_trend_task, migratie_task
+    )
 
     # Stap 2c: RVO EP-Online + TK2025-uitslag (beide synchroon, geen I/O)
     # + Kadaster WOZ (async — vereist API-key, retourneert None zonder).
@@ -156,7 +160,7 @@ async def scan(query: str) -> ScanResult:
         woning=_build_woning(pand, energielabel, woz_adres),
         wijk_economie=_build_wijk_economie(buurt, woz_trend),
 
-        buren=_build_buren(buurt, tk_uitslag),
+        buren=_build_buren(buurt, tk_uitslag, migratie),
         # Voorzieningen worden apart geladen via /voorzieningen endpoint
         # (Overpass-call duurt 3-6s cold; frontend haalt deze async op nadat
         # de hoofdpagina is gerenderd). Hier een 'pending' placeholder zodat
@@ -199,6 +203,34 @@ async def _cached_fetch_cbs(
         return hit
     result = await cbs.fetch_buurt(buurtcode, wijkcode, gemeentecode)
     _cache_set(key, result)
+    return result
+
+
+async def _cached_fetch_migratie(
+    buurtcode: str,
+    wijkcode: Optional[str],
+    gemeentecode: Optional[str],
+) -> Optional[dict]:
+    """Migratieachtergrond uit KWB 2020 met hierarchische fallback.
+
+    KWB 2020 is de laatste CBS-dataset met dit veld op buurt-niveau. Voor
+    Amsterdam (nieuwe buurtcodering sinds 2021) valt het terug op wijk
+    of gemeente. 30-dagen cache — data is dated (2020), verandert niet.
+    """
+    key = f"migratie:{buurtcode}:{wijkcode}:{gemeentecode}"
+    hit = _cache_get(key, 30 * 24 * 3600)
+    if isinstance(hit, dict):
+        return hit
+    try:
+        result = await cbs.fetch_migratieachtergrond(
+            buurtcode=buurtcode or None,
+            wijkcode=wijkcode,
+            gemeentecode=gemeentecode,
+        )
+    except Exception:
+        return None
+    if result is not None:
+        _cache_set(key, result)
     return result
 
 
@@ -615,6 +647,7 @@ def _build_wijk_economie(
 def _build_buren(
     buurt: Optional[cbs.BuurtStats],
     verkiezing: Optional[verkiezingen.VerkiezingsUitslag],
+    migratie: Optional[dict] = None,
 ) -> dict:
     if buurt is None:
         return {"available": False}
@@ -704,6 +737,10 @@ def _build_buren(
             "scope": scope.get("huishoudensgrootte"),
         },
         "leeftijdsprofiel": leeftijdsprofiel,
+        # Migratieachtergrond uit KWB 2020 (laatste buurt-beschikbare jaargang).
+        # Orchestrator retourneert ook 'None' als niets gevonden — frontend
+        # rendert alleen als er echt data is.
+        "migratieachtergrond": _migratie_to_dict(migratie) if migratie else None,
         # Legacy fields voor backwards-compat (frontend rendert ze niet meer,
         # maar evt. oude clients of caches zouden breken zonder).
         "inwoners": {
@@ -727,6 +764,24 @@ def _build_buren(
             "per_gemeente_beschikbaar": verkiezing.per_gemeente_beschikbaar,
         }
     return out
+
+
+def _migratie_to_dict(m: dict) -> dict:
+    """Serialize migratie-data naar UI-klaar dict met ref + karakter."""
+    ref = references.ref_migratieachtergrond(
+        pct_nederlands=m.get("pct_nederlands"),
+        pct_westers=m.get("pct_westers"),
+        pct_niet_westers=m.get("pct_niet_westers"),
+    )
+    return {
+        "pct_nederlands":   m.get("pct_nederlands"),
+        "pct_westers":      m.get("pct_westers"),
+        "pct_niet_westers": m.get("pct_niet_westers"),
+        "totaal_inwoners":  m.get("totaal_inwoners"),
+        "scope":            m.get("scope"),
+        "peiljaar":         m.get("peiljaar"),
+        "ref":              _as_ref(ref),
+    }
 
 
 def _build_voorzieningen(lijst: list[dict]) -> dict:

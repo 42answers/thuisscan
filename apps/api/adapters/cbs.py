@@ -20,8 +20,16 @@ import httpx
 
 DATASET_ID = "85984NED"  # Kerncijfers wijken en buurten 2024
 DATASET_NABIJHEID = "84718NED"  # Nabijheid voorzieningen — uitgebreide afstanden
+DATASET_MIGRATIE = "84799NED"   # KWB 2020 — LAATSTE jaargang met migratieachtergrond
+                                # op buurt-niveau. Vanaf 2021 heeft CBS dit veld
+                                # uit de KWB gehaald. Werken met 2020-peiljaar is
+                                # een bewuste tradeoff: dated maar wel echt buurt-
+                                # specifiek. Voor gebieden zonder buurtcode-match
+                                # (bv. Amsterdam, herstructureerde codes) vallen
+                                # we terug op gemeente-niveau.
 BASE_URL = f"https://datasets.cbs.nl/odata/v1/CBS/{DATASET_ID}"
 BASE_URL_NABIJHEID = f"https://datasets.cbs.nl/odata/v1/CBS/{DATASET_NABIJHEID}"
+BASE_URL_MIGRATIE = f"https://datasets.cbs.nl/odata/v1/CBS/{DATASET_MIGRATIE}"
 TIMEOUT_S = 6.0
 
 # Historische jaargangen van "Kerncijfers Wijken en Buurten" voor WOZ-trend.
@@ -442,3 +450,106 @@ def _build_buurtstats(buurtcode: str, parsed: dict, scope: dict) -> BuurtStats:
         afstand_kinderdagverblijf_km=parsed["afstand_kinderdagverblijf"],
         afstand_school_km=parsed["afstand_school"],
     )
+
+
+# ---------------------------------------------------------------------------
+# Migratieachtergrond (KWB 2020) — buurt-niveau laatste beschikbaar jaar
+# ---------------------------------------------------------------------------
+
+# Measure codes in 84799NED:
+#   T001036     = totaal inwoners
+#   2012655     = westerse migratieachtergrond (EU, Noord-Amerika, Oceanië, etc.)
+#   2012657_2   = niet-westerse migratieachtergrond (totaal)
+#   A008187     = overig niet-westers (detail binnen niet-westers)
+# Nederlandse achtergrond = totaal - westers - niet_westers
+MIGRATIE_MEASURES = {
+    "totaal_inwoners": "T001036",
+    "westers":         "2012655",
+    "niet_westers":    "2012657_2",
+}
+
+
+async def fetch_migratieachtergrond(
+    buurtcode: Optional[str] = None,
+    wijkcode: Optional[str] = None,
+    gemeentecode: Optional[str] = None,
+) -> Optional[dict]:
+    """Haal migratieachtergrond uit KWB 2020 met hiërarchische fallback.
+
+    Retourneert dict met percentages of None als geen data:
+        {
+            "pct_nederlands": float,
+            "pct_westers":    float,
+            "pct_niet_westers": float,
+            "totaal_inwoners": int,
+            "scope": "buurt" | "wijk" | "gemeente",
+            "peiljaar": "2020",
+        }
+
+    Amsterdam en sommige andere steden hebben hun buurtcodes in 2021
+    geherstructureerd; daar valt de lookup terug op wijk- of gemeentecode.
+    """
+    # Kandidaten in volgorde van specificiteit
+    candidates: list[tuple[Optional[str], str]] = [
+        (buurtcode, "buurt"),
+        (wijkcode, "wijk"),
+    ]
+    if gemeentecode:
+        gm = gemeentecode if gemeentecode.startswith("GM") else f"GM{gemeentecode}"
+        candidates.append((gm, "gemeente"))
+
+    for code, scope in candidates:
+        if not code:
+            continue
+        data = await _query_migratie(code)
+        if data and data.get("totaal_inwoners"):
+            totaal = data["totaal_inwoners"]
+            westers = data.get("westers") or 0
+            niet_westers = data.get("niet_westers") or 0
+            nederlands = max(0, totaal - westers - niet_westers)
+            return {
+                "pct_nederlands":   round(100 * nederlands / totaal, 1),
+                "pct_westers":      round(100 * westers / totaal, 1),
+                "pct_niet_westers": round(100 * niet_westers / totaal, 1),
+                "totaal_inwoners":  int(totaal),
+                "scope":            scope,
+                "peiljaar":         "2020",
+            }
+    return None
+
+
+async def _query_migratie(wnb_code: str) -> dict:
+    """Eén OData-call op 84799NED voor de 3 migratie-measures."""
+    codes = tuple(MIGRATIE_MEASURES.values())
+    in_list = ",".join(f"'{c}'" for c in codes)
+    filter_expr = (
+        f"WijkenEnBuurten eq '{wnb_code}' and Measure in ({in_list})"
+    )
+    params = {
+        "$filter": filter_expr,
+        "$select": "Measure,Value,ValueAttribute",
+        "$top": str(len(codes)),
+    }
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_S) as client:
+            resp = await client.get(
+                f"{BASE_URL_MIGRATIE}/Observations", params=params
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:
+        return {}
+
+    code_to_field = {v: k for k, v in MIGRATIE_MEASURES.items()}
+    out: dict = {}
+    for obs in data.get("value", []):
+        code = obs.get("Measure")
+        if obs.get("ValueAttribute") in MISSING_ATTRIBUTES and obs.get("Value") is None:
+            continue
+        v = obs.get("Value")
+        if v is None:
+            continue
+        field = code_to_field.get(code)
+        if field:
+            out[field] = v
+    return out

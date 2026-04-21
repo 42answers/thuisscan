@@ -285,6 +285,15 @@ main {
 .eig-dot.leef-midden { background: var(--strong); }
 .eig-dot.leef-oud    { background: #7b6aa8; }
 
+/* Migratieachtergrond — neutrale palet (geen goed/slecht, beschrijvend).
+   NL = donker groen-blauw · Westers = middengrijs · Niet-westers = zacht rood-bruin */
+.eig-seg.mig-nl { background: #3a6b8a; }
+.eig-seg.mig-w  { background: #b39968; }
+.eig-seg.mig-nw { background: #a1535b; }
+.eig-dot.mig-nl { background: #3a6b8a; }
+.eig-dot.mig-w  { background: #b39968; }
+.eig-dot.mig-nw { background: #a1535b; }
+
 @media (max-width: 560px) {
   .eig-legend { gap: 0.5rem 0.9rem; font-size: 0.78rem; }
 }
