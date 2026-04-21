@@ -340,18 +340,31 @@ main {
 }
 .vraag-factor {
   display: grid;
-  grid-template-columns: 22px 1fr auto;
-  gap: 0.5rem;
-  padding: 0.25rem 0;
-  font-size: 0.85rem;
+  grid-template-columns: 16px 1fr auto;
+  gap: 0.7rem;
+  padding: 0.3rem 0;
+  font-size: 0.9rem;
   align-items: center;
 }
-.vf-arrow { text-align: center; font-weight: 600; }
-.vf-good  .vf-arrow { color: var(--strong); }
-.vf-warn  .vf-arrow { color: var(--weak); }
-.vf-neutral .vf-arrow { color: var(--neutral); }
-.vf-label { color: var(--ink); opacity: 0.8; }
-.vf-value { color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 500; }
+/* Bolletje-indicator per factor — dominante visuele cue */
+.vf-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--neutral);
+  display: inline-block;
+  justify-self: center;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.03); /* subtiele contrast-ring */
+}
+.vf-good    .vf-dot { background: var(--strong); }
+.vf-warn    .vf-dot { background: var(--weak); }
+.vf-neutral .vf-dot { background: #b8b8b8; }
+.vf-label { color: var(--ink); opacity: 0.85; }
+.vf-value {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
 
 /* Cover — Leefbaarometer-score bovenaan resultaten */
 .cover {

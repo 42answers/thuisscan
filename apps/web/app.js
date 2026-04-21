@@ -424,9 +424,8 @@ function renderVraag(v) {
   const samenvatting = escape(v.samenvatting || '');
   const factoren = (v.factoren || []).map(f => {
     const lvl = f.level || 'neutral';
-    const dot = lvl === 'good' ? '↑' : lvl === 'warn' ? '↓' : '→';
     return `<li class="vraag-factor vf-${lvl}">
-      <span class="vf-arrow">${dot}</span>
+      <span class="vf-dot" aria-label="${lvl}"></span>
       <span class="vf-label">${escape(f.label)}</span>
       <span class="vf-value">${escape(f.value_text)}</span>
     </li>`;
