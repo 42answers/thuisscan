@@ -22,10 +22,14 @@ html, body {
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
   line-height: 1.5;
-  /* Voorkom horizontaal scrollen op mobile bij brede iframes / lange strings */
-  overflow-x: hidden;
 }
-/* Respecteer iPhone notch / dynamic island */
+/* Respecteer iPhone notch / dynamic island.
+   NIET overflow-x: hidden op html/body zetten — dat maakt overflow-y
+   impliciet 'auto' en knipt absolute-positioned dropdowns (zoals de
+   suggesties-lijst onder de zoekbalk) visueel af. Horizontale overflow
+   voorkomen we op de specifieke containers die breed kunnen worden
+   (iframes in .map-pane hebben al width:100%, en alle .card's zijn
+   max-width begrensd). */
 body {
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
