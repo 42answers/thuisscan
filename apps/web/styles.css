@@ -377,12 +377,56 @@ main {
   color: var(--ink);
   opacity: 0.85;
 }
+.vraag-cats {
+  margin-top: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.cat {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.cat[open] { background: var(--card); }
+.cat summary {
+  display: grid;
+  grid-template-columns: 12px 22px auto 1fr 18px;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.6rem 0.8rem;
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.88rem;
+}
+.cat summary::-webkit-details-marker { display: none; }
+.cat-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--neutral);
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.03);
+}
+.cat-good    .cat-dot { background: var(--strong); }
+.cat-warn    .cat-dot { background: var(--weak); }
+.cat-neutral .cat-dot { background: #b8b8b8; }
+.cat-mixed   .cat-dot { background: #d9a441; }
+.cat-icon    { font-size: 1rem; }
+.cat-naam    { font-weight: 600; color: var(--ink); white-space: nowrap; }
+.cat-sam     { color: var(--muted); font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cat-chevron { color: var(--muted); font-size: 0.7rem; transition: transform 0.15s; justify-self: end; }
+.cat[open] .cat-chevron { transform: rotate(180deg); }
+
 .vraag-factoren {
   list-style: none;
-  padding: 0;
-  margin: 0.5rem 0 0;
+  padding: 0.4rem 0.8rem 0.7rem 2.1rem;
+  margin: 0;
   border-top: 1px dashed var(--line);
-  padding-top: 0.5rem;
+  background: var(--card);
+}
+@media (max-width: 560px) {
+  .cat summary { grid-template-columns: 10px 18px auto 1fr 14px; gap: 0.4rem; font-size: 0.82rem; }
+  .cat-sam { display: none; }
 }
 .vraag-factor {
   display: grid;

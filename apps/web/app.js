@@ -502,14 +502,30 @@ function renderVraag(v) {
   const scoreLabel = escape(v.score_label || '');
   const vraag = escape(v.vraag || '');
   const samenvatting = escape(v.samenvatting || '');
-  const factoren = (v.factoren || []).map(f => {
-    const lvl = f.level || 'neutral';
-    return `<li class="vraag-factor vf-${lvl}">
-      <span class="vf-dot" aria-label="${lvl}"></span>
-      <span class="vf-label">${escape(f.label)}</span>
-      <span class="vf-value">${escape(f.value_text)}</span>
-    </li>`;
+
+  // Elke categorie = een 'bakje' met eigen verdict-dot + samenvatting +
+  // een details-disclosure met de onderliggende factoren.
+  const categorieen = (v.categorieen || []).map(c => {
+    const lvl = c.verdict || 'neutral';
+    const factoren = (c.factoren || []).map(f => `
+      <li class="vraag-factor vf-${f.level || 'neutral'}">
+        <span class="vf-dot"></span>
+        <span class="vf-label">${escape(f.label)}</span>
+        <span class="vf-value">${escape(f.value_text)}</span>
+      </li>`).join('');
+    return `
+      <details class="cat cat-${lvl}">
+        <summary>
+          <span class="cat-dot"></span>
+          <span class="cat-icon">${escape(c.icoon || '•')}</span>
+          <span class="cat-naam">${escape(c.naam)}</span>
+          <span class="cat-sam">${escape(c.samenvatting || '')}</span>
+          <span class="cat-chevron">▾</span>
+        </summary>
+        <ul class="vraag-factoren">${factoren}</ul>
+      </details>`;
   }).join('');
+
   return `
     <article class="vraag-card ${verdictClass}">
       <header class="vraag-header">
@@ -518,7 +534,7 @@ function renderVraag(v) {
         <span class="vraag-badge">${scoreLabel}</span>
       </header>
       <p class="vraag-sam">${samenvatting}</p>
-      <ul class="vraag-factoren">${factoren}</ul>
+      <div class="vraag-cats">${categorieen}</div>
     </article>
   `;
 }
