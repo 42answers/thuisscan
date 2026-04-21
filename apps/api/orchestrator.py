@@ -844,9 +844,116 @@ def _provenance(buurtcode: str) -> list[dict]:
 
 
 def result_as_dict(r: ScanResult) -> dict:
-    """Serialize + bouw de sociale vragen (post-processing over alle secties)."""
+    """Serialize + bouw de sociale vragen + cover-highlights (post-processing)."""
     data = asdict(r)
     # Sociale vragen hergebruiken de reeds-opgebouwde dicts — doen we hier
     # zodat de vragen-module niet af hoeft te weten van de dataclass-structuur.
     data["sociale_vragen"] = social_questions.build(data)
+    # Cijferrapport-highlights: 2-3 korte signalen voor onder de cover-score.
+    if data.get("cover") and data["cover"].get("available"):
+        data["cover"]["highlights"] = _build_highlights(data)
     return data
+
+
+def _build_highlights(data: dict) -> list[dict]:
+    """Scan alle secties en destilleer 2-3 *opvallende* signalen.
+
+    Geen dubbeling van de samengestelde score zelf. We pakken:
+      - Beste aspect (sterkste good)
+      - Zwakste aspect (sterkste warn)
+      - Evt. een opvallend 'mixed' signaal (bv. hoge lucht maar veel geluid)
+
+    Elk highlight: {label, value, level, scope} — frontend rendert als chips.
+    """
+    candidates: list[dict] = []
+
+    # --- Woning ---
+    label = (data.get("woning") or {}).get("energielabel") or {}
+    if label.get("value") and (label.get("ref") or {}).get("chip_level"):
+        lvl = label["ref"]["chip_level"]
+        candidates.append({
+            "label": f"Energielabel {label['value']}",
+            "value": (label["ref"] or {}).get("chip_text", ""),
+            "level": lvl,
+        })
+
+    # --- Wijk-economie: WOZ-trend ---
+    woz = (data.get("wijk_economie") or {}).get("woz") or {}
+    trend = woz.get("trend_pct_per_jaar")
+    if trend is not None:
+        if trend >= 3:
+            candidates.append({"label": "WOZ stijgt", "value": f"+{trend}%/jaar", "level": "good"})
+        elif trend <= -2:
+            candidates.append({"label": "WOZ daalt", "value": f"{trend}%/jaar", "level": "warn"})
+
+    # --- Klimaat: paalrot ---
+    paalrot = (data.get("klimaat") or {}).get("paalrot") or {}
+    p_lvl = (paalrot.get("ref") or {}).get("chip_level")
+    p_val = paalrot.get("value")
+    if p_val is not None and p_lvl == "warn" and p_val >= 40:
+        candidates.append({
+            "label": "Funderingsrisico",
+            "value": f"{p_val}% panden",
+            "level": "warn",
+        })
+    elif p_val is not None and p_lvl == "good" and p_val < 10:
+        candidates.append({"label": "Stevige ondergrond", "value": "laag paalrotrisico", "level": "good"})
+
+    # --- Leefkwaliteit: geluid + PM2.5 ---
+    geluid = (data.get("leefkwaliteit") or {}).get("geluid") or {}
+    g_lvl = (geluid.get("ref") or {}).get("chip_level")
+    g_val = geluid.get("value")
+    if g_val is not None and g_lvl == "warn":
+        candidates.append({"label": "Geluid op gevel", "value": f"{g_val} dB", "level": "warn"})
+    elif g_val is not None and g_lvl == "good" and g_val < 50:
+        candidates.append({"label": "Stille locatie", "value": f"{g_val} dB", "level": "good"})
+
+    pm = (data.get("leefkwaliteit") or {}).get("pm25") or {}
+    pm_lvl = (pm.get("ref") or {}).get("chip_level")
+    if pm_lvl == "warn":
+        candidates.append({"label": "Fijnstof boven NL", "value": f"{pm['value']} µg/m³", "level": "warn"})
+    elif pm_lvl == "good" and pm.get("value") and pm["value"] <= 5:
+        candidates.append({"label": "Lucht zeer schoon", "value": f"{pm['value']} µg/m³", "level": "good"})
+
+    # --- Veiligheid ---
+    inbr = (data.get("veiligheid") or {}).get("woninginbraak") or {}
+    inbr_lvl = (inbr.get("ref") or {}).get("chip_level")
+    if inbr_lvl == "warn" and inbr.get("value"):
+        candidates.append({"label": "Inbraken bovengem.", "value": f"{inbr['value']} /1.000", "level": "warn"})
+    elif inbr_lvl == "good" and inbr.get("value") is not None and inbr["value"] < 1:
+        candidates.append({"label": "Weinig inbraken", "value": f"{inbr['value']} /1.000", "level": "good"})
+
+    # --- Buren: dichtheid als 'karakter' ---
+    dichtheid = (data.get("buren") or {}).get("dichtheid") or {}
+    d_val = dichtheid.get("value")
+    if d_val is not None and d_val >= 10000:
+        candidates.append({"label": "Zeer stedelijk", "value": f"{d_val:,}/km²".replace(",", "."), "level": "neutral"})
+    elif d_val is not None and d_val < 500:
+        candidates.append({"label": "Landelijk", "value": f"{d_val:,}/km²".replace(",", "."), "level": "neutral"})
+
+    # --- Oppervlakte als karakter ---
+    opp = (data.get("woning") or {}).get("oppervlakte") or {}
+    opp_v = opp.get("value")
+    if opp_v is not None and opp_v >= 180:
+        candidates.append({"label": "Zeer ruim", "value": f"{opp_v} m²", "level": "good"})
+
+    # Selecteer max 3: bij voorkeur 1 good + 1 warn + 1 overig (neutral/tweede).
+    # Voorkomt saaie 3x-good of 3x-warn rijen; toont wat écht opvalt.
+    goods = [c for c in candidates if c["level"] == "good"]
+    warns = [c for c in candidates if c["level"] == "warn"]
+    neutrals = [c for c in candidates if c["level"] == "neutral"]
+
+    out: list[dict] = []
+    if goods:
+        out.append(goods[0])
+    if warns:
+        out.append(warns[0])
+    # Derde slot: 2e warn (als aandacht nodig) of 2e good of neutral
+    if len(warns) >= 2:
+        out.append(warns[1])
+    elif len(goods) >= 2 and len(out) < 3:
+        out.append(goods[1])
+    elif neutrals and len(out) < 3:
+        out.append(neutrals[0])
+
+    return out[:3]

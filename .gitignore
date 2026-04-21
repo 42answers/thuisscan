@@ -2,6 +2,9 @@
 .env
 .env.local
 *.key
+# Frontend config bevat API-keys (Google Maps); committen = keys lekken.
+# Gebruik config.example.js als template.
+apps/web/config.js
 
 # Python
 __pycache__/

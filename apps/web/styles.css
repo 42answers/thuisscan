@@ -247,7 +247,7 @@ main {
 .muted { color: var(--muted); }
 .small { font-size: 0.85rem; }
 
-/* Kaart (MapLibre) + externe viewer-links */
+/* Kaart (MapLibre) + tabs voor Street View / Satelliet / 3D */
 .mapcard {
   background: var(--card);
   border: 1px solid var(--line);
@@ -255,24 +255,70 @@ main {
   overflow: hidden;
   margin: 0 0 1rem;
 }
-#map {
-  width: 100%;
-  height: 280px;
+.map-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.map-tab {
+  flex: 1;
+  padding: 0.7rem 0.6rem;
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  border-right: 1px solid var(--line);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-decoration: none;
+  text-align: center;
+  font-family: inherit;
+}
+.map-tab:last-child { border-right: none; }
+.map-tab:hover { background: var(--accent-soft); color: var(--ink); }
+.map-tab.active {
+  background: var(--card);
+  color: var(--ink);
+  font-weight: 600;
+  border-bottom: 2px solid var(--accent);
+  margin-bottom: -1px;
+}
+.map-tab-ext { color: var(--muted); font-size: 0.78rem; }
+
+.map-viewport {
+  position: relative;
+  height: 340px;
   background: #e9e6dc;
 }
-.map-actions {
+.map-pane {
+  position: absolute; inset: 0;
+  display: none;
+  width: 100%;
+  height: 100%;
+}
+.map-pane.active { display: block; }
+.map-pane iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+#map { width: 100%; height: 100%; }
+
+.map-fallback {
   display: flex;
-  gap: 0.5rem;
-  padding: 0.6rem 0.8rem;
-  border-top: 1px solid var(--line);
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 2rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.9rem;
 }
 .map-btn {
-  flex: 1;
-  min-width: 0;
-  text-align: center;
-  padding: 0.45rem 0.6rem;
-  background: var(--bg);
+  padding: 0.55rem 1.1rem;
+  background: var(--card);
   color: var(--ink);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -412,6 +458,46 @@ main {
   opacity: 0.8;
   margin: 0 0 0.8rem;
   line-height: 1.4;
+}
+
+/* Cover highlights — cijferrapport-chips onder de label */
+.cover-highlights {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.8rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.hl {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+.hl-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--neutral);
+}
+.hl-good    { background: #e4f4eb; border-color: #c2e4cd; }
+.hl-good    .hl-dot { background: var(--strong); }
+.hl-warn    { background: #fbe8e1; border-color: #f0cbbe; }
+.hl-warn    .hl-dot { background: var(--weak); }
+.hl-neutral .hl-dot { background: #b8b8b8; }
+.hl-label {
+  color: var(--ink);
+  opacity: 0.85;
+}
+.hl-value {
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 .cover-bar {
   position: relative;

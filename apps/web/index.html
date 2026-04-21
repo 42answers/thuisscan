@@ -32,13 +32,20 @@
       <p class="muted" id="r-codes"></p>
     </div>
 
-    <!-- Kaart + pand-outline (links naar Street View) -->
+    <!-- Kaart + pand-outline (met inline Street View / Satelliet toggle) -->
     <section class="mapcard" id="s-map" hidden>
-      <div id="map"></div>
-      <div class="map-actions">
-        <a id="m-streetview" class="map-btn" target="_blank" rel="noopener">📷 Street View</a>
-        <a id="m-satelliet" class="map-btn" target="_blank" rel="noopener">🛰️ Satelliet</a>
-        <a id="m-bag3d" class="map-btn" target="_blank" rel="noopener">🏢 3D BAG-viewer</a>
+      <!-- Toggle-bar: schakelt tussen Kaart / Street View / Satelliet -->
+      <div class="map-tabs">
+        <button class="map-tab active" data-view="map">🗺️ Kaart</button>
+        <button class="map-tab" data-view="streetview">📷 Street View</button>
+        <button class="map-tab" data-view="satellite">🛰️ Satelliet</button>
+        <a id="m-bag3d" class="map-tab map-tab-ext" target="_blank" rel="noopener">🏢 3D ↗</a>
+      </div>
+      <!-- Viewport: één van deze is zichtbaar per keer -->
+      <div class="map-viewport">
+        <div id="map" class="map-pane active"></div>
+        <div id="map-streetview" class="map-pane"></div>
+        <div id="map-satellite" class="map-pane"></div>
       </div>
     </section>
 
@@ -55,6 +62,8 @@
         </div>
         <div class="cover-body">
           <div class="cover-label" id="cover-label">—</div>
+          <!-- Cijferrapport: 2-3 korte signalen "wat maakt dit huis bijzonder" -->
+          <ul class="cover-highlights" id="cover-highlights"></ul>
           <p class="cover-meaning" id="cover-meaning"></p>
           <div class="cover-bar"><span class="cover-bar-fill" id="cover-fill"></span></div>
           <div class="cover-bar-scale"><span>slechtst NL</span><span>NL-gemiddelde</span><span>top NL</span></div>

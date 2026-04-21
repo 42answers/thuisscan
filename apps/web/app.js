@@ -333,20 +333,22 @@ function renderTrend(woz) {
 // niet zelf kunnen tekenen (3D gebouwen, foto's).
 
 let _map = null;
+let _mapCurrentLatLon = null;  // onthoudt laatst getoonde adres voor lazy tab-loading
+
 async function renderMap(d) {
   const el = document.getElementById('s-map');
   if (!el || !d.adres || !d.adres.wgs84) return;
   const { lat, lon } = d.adres.wgs84;
   if (!lat || !lon) { el.hidden = true; return; }
   el.hidden = false;
+  _mapCurrentLatLon = { lat, lon, displayName: d.adres.display_name };
 
-  // Externe viewer-links (altijd beschikbaar, werken zonder key)
-  document.getElementById('m-streetview').href =
-    `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lon}`;
-  document.getElementById('m-satelliet').href =
-    `https://www.google.com/maps/@${lat},${lon},19z/data=!3m1!1e3`;
+  // BAG 3D-viewer link (externe, altijd nieuw tabblad — grote Kadaster-app)
   document.getElementById('m-bag3d').href =
     `https://bagviewer.kadaster.nl/lvbag/bag-viewer/index.html#?searchQuery=${encodeURIComponent(d.adres.display_name)}`;
+
+  // Reset tabs: zet 'Kaart' terug als actief bij elke nieuwe scan
+  _activateTab('map');
 
   // Wacht tot MapLibre geladen is (script had `defer`)
   if (typeof maplibregl === 'undefined') {
@@ -378,6 +380,84 @@ async function renderMap(d) {
   // Optioneel: BAG pand-polygoon ophalen via onze backend (zie orchestrator)
   const pandId = (d.woning && d.woning.bag_pand_id) || null;
   if (pandId) loadPandPolygon(pandId);
+}
+
+// ---- Tab-switching tussen Kaart / Street View / Satelliet ----
+// Street View + Satelliet gebruiken Google Maps Embed API (vereist key).
+// Zonder key valt de respectievelijke tab terug op een externe link-knop.
+
+function _activateTab(view) {
+  // Update tab-states
+  document.querySelectorAll('.map-tab[data-view]').forEach(t => {
+    t.classList.toggle('active', t.dataset.view === view);
+  });
+  // Update pane-visibility
+  document.querySelectorAll('.map-pane').forEach(p => {
+    const target = 'map' + (view === 'map' ? '' : '-' + view);
+    p.classList.toggle('active', p.id === target);
+  });
+
+  // Lazy-load de inhoud van de tab zodra hij zichtbaar wordt
+  if (view === 'streetview') _loadStreetView();
+  if (view === 'satellite') _loadSatellite();
+  // Resize kaart wanneer we terugkomen (MapLibre heeft dit nodig na hidden)
+  if (view === 'map' && _map) setTimeout(() => _map.resize(), 50);
+}
+
+// Tab-klik handlers (eenmaal binden bij page load)
+document.addEventListener('click', (e) => {
+  const tab = e.target.closest('.map-tab[data-view]');
+  if (tab) _activateTab(tab.dataset.view);
+});
+
+function _loadStreetView() {
+  const pane = document.getElementById('map-streetview');
+  if (!pane || !_mapCurrentLatLon) return;
+  const { lat, lon, displayName } = _mapCurrentLatLon;
+  const key = window.GOOGLE_MAPS_API_KEY;
+  if (!key) {
+    // Fallback: externe link als er geen key is
+    pane.innerHTML = `
+      <div class="map-fallback">
+        <p>Street View is alleen extern beschikbaar zonder Google Maps Embed-key.</p>
+        <a class="map-btn" target="_blank" rel="noopener"
+           href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lon}">
+          Open in Google Maps ↗
+        </a>
+      </div>`;
+    return;
+  }
+  // Alleen iframe vervangen als lat/lon verschilt (voorkomt unnodige reload)
+  const wanted = `sv:${lat},${lon}`;
+  if (pane.dataset.loaded === wanted) return;
+  pane.dataset.loaded = wanted;
+  pane.innerHTML = `
+    <iframe loading="lazy" allowfullscreen
+      src="https://www.google.com/maps/embed/v1/streetview?key=${encodeURIComponent(key)}&location=${lat},${lon}&heading=0&pitch=0&fov=90"></iframe>`;
+}
+
+function _loadSatellite() {
+  const pane = document.getElementById('map-satellite');
+  if (!pane || !_mapCurrentLatLon) return;
+  const { lat, lon } = _mapCurrentLatLon;
+  const key = window.GOOGLE_MAPS_API_KEY;
+  if (!key) {
+    pane.innerHTML = `
+      <div class="map-fallback">
+        <p>Satelliet-weergave vereist een Google Maps Embed-key.</p>
+        <a class="map-btn" target="_blank" rel="noopener"
+           href="https://www.google.com/maps/@${lat},${lon},19z/data=!3m1!1e3">
+          Open in Google Maps ↗
+        </a>
+      </div>`;
+    return;
+  }
+  const wanted = `sat:${lat},${lon}`;
+  if (pane.dataset.loaded === wanted) return;
+  pane.dataset.loaded = wanted;
+  pane.innerHTML = `
+    <iframe loading="lazy" allowfullscreen
+      src="https://www.google.com/maps/embed/v1/view?key=${encodeURIComponent(key)}&center=${lat},${lon}&zoom=19&maptype=satellite"></iframe>`;
 }
 
 async function loadPandPolygon(pandId) {
@@ -459,6 +539,9 @@ function renderCover(cover) {
   if (fill) fill.style.width = `${cover.percentile_nl || 0}%`;
   el.dataset.level = cover.score >= 7 ? 'good' : cover.score >= 4 ? 'neutral' : 'warn';
 
+  // Cover highlights: 2-3 chips die direct "wat valt op" samenvatten
+  renderHighlights(cover.highlights || []);
+
   // Grid-vs-buurt vergelijking helder verwoord (bv. "100 m: 8/9, buurt: 6/9")
   const compareEl = document.getElementById('cover-compare');
   if (compareEl) {
@@ -472,6 +555,19 @@ function renderCover(cover) {
 
   // 5 sub-dimensies als mini-balkjes + eventuele waarschuwing bij scheve spread.
   renderCoverDims(cover.dimensies || [], cover.waarschuwing);
+}
+
+function renderHighlights(highlights) {
+  const el = document.getElementById('cover-highlights');
+  if (!el) return;
+  if (!highlights.length) { el.innerHTML = ''; return; }
+  el.innerHTML = highlights.map(h => `
+    <li class="hl hl-${h.level || 'neutral'}">
+      <span class="hl-dot"></span>
+      <span class="hl-label">${escape(h.label)}</span>
+      <span class="hl-value">${escape(h.value)}</span>
+    </li>
+  `).join('');
 }
 
 function renderCoverDims(dims, waarschuwing) {

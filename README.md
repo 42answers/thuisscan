@@ -31,6 +31,30 @@ Testen:
 curl "http://localhost:8000/lookup?q=Damrak+1+Amsterdam"
 ```
 
+## Frontend-configuratie (config.js)
+
+De frontend leest runtime-config uit `apps/web/config.js`. Deze file is
+**gitignored** omdat hij API-keys kan bevatten. Bij een fresh clone:
+
+```bash
+cp apps/web/config.example.js apps/web/config.js
+# En vul je eigen keys in.
+```
+
+### Google Maps Embed API (optioneel, voor inline Street View)
+
+Zonder key vallen de Street View / Satelliet tabs terug op een externe
+Google Maps-link. Met een key zie je de beelden direct in de app.
+
+1. Ga naar https://console.cloud.google.com → nieuw project
+2. Activeer **"Maps Embed API"** (geen betaalmethode nodig, volledig gratis
+   voor Embed — alleen de JavaScript Maps API kost geld bij overuse)
+3. **APIs & Services → Credentials → Create API key**
+4. **Restrict key → HTTP referrers**: zet alleen jouw domeinen
+   (bv. `http://localhost:8765/*`, `https://thuisscan.netlify.app/*`) —
+   dit voorkomt dat de key misbruikt wordt als hij uit de JS gelekt wordt
+5. Plak de key in `apps/web/config.js` onder `GOOGLE_MAPS_API_KEY`
+
 ## Kadaster WOZ API-key aanvragen (optioneel)
 
 Zonder key toont de app **buurt-gemiddelde WOZ** uit CBS. Met een Kadaster-key krijg je de **exacte WOZ-waarde per pand** inclusief historie (3-5 jaargangen).
