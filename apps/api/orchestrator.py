@@ -549,45 +549,45 @@ def _build_buren(
 
 
 def _build_voorzieningen(lijst: list[dict]) -> dict:
-    """Voorzieningen-lijst gesorteerd van dichtbij naar ver.
-
-    Verving de ringen-visualisatie — een lijst met 20+ items is voor de
-    gebruiker veel informatiever dan 4 iconen op concentrische cirkels.
+    """Voorzieningen-lijst gesorteerd van dichtbij naar ver, met categorie
+    per item zodat de frontend kan filteren op 'Kinderen', 'Zorg', etc.
     """
     if not lijst:
         return {"available": False}
-    # Pretty labels voor de frontend (snake_case -> Menselijke naam)
+    # Pretty labels + categorie-tag per type. Categorieen = filter-groepen.
     labels = {
-        "supermarkt": "Supermarkt",
-        "dagelijkse_levensmiddelen": "Buurtsuper / dagwinkel",
-        "huisarts": "Huisarts",
-        "huisartsenpost": "Huisartsenpost",
-        "apotheek": "Apotheek",
-        "fysiotherapeut": "Fysiotherapeut",
-        "ziekenhuis": "Ziekenhuis",
-        "basisschool": "Basisschool",
-        "kinderdagverblijf": "Kinderdagverblijf",
-        "buitenschoolse_opvang": "Buitenschoolse opvang",
-        "restaurant": "Restaurant",
-        "cafe": "Café",
-        "cafetaria": "Cafetaria",
-        "hotel": "Hotel",
-        "park": "Park",
-        "bos": "Bos",
-        "sportterrein": "Sportterrein",
-        "zwembad": "Zwembad",
-        "treinstation": "Treinstation",
-        "overstapstation": "Intercity-station",
-        "oprit_snelweg": "Oprit snelweg",
-        "bibliotheek": "Bibliotheek",
-        "museum": "Museum",
-        "bioscoop": "Bioscoop",
+        "supermarkt":              ("Supermarkt",              "boodschappen"),
+        "dagelijkse_levensmiddelen":("Buurtsuper / dagwinkel", "boodschappen"),
+        "huisarts":                ("Huisarts",                "zorg"),
+        "huisartsenpost":          ("Huisartsenpost",          "zorg"),
+        "apotheek":                ("Apotheek",                "zorg"),
+        "fysiotherapeut":          ("Fysiotherapeut",          "zorg"),
+        "ziekenhuis":              ("Ziekenhuis",              "zorg"),
+        "basisschool":             ("Basisschool",             "kinderen"),
+        "kinderdagverblijf":       ("Kinderdagverblijf",       "kinderen"),
+        "buitenschoolse_opvang":   ("Buitenschoolse opvang",   "kinderen"),
+        "restaurant":              ("Restaurant",              "entertainment"),
+        "cafe":                    ("Café",                    "entertainment"),
+        "cafetaria":               ("Cafetaria",               "entertainment"),
+        "hotel":                   ("Hotel",                   "entertainment"),
+        "park":                    ("Park",                    "sport"),
+        "bos":                     ("Bos",                     "sport"),
+        "sportterrein":            ("Sportterrein",            "sport"),
+        "zwembad":                 ("Zwembad",                 "sport"),
+        "treinstation":            ("Treinstation",            "transport"),
+        "overstapstation":         ("Intercity-station",       "transport"),
+        "oprit_snelweg":           ("Oprit snelweg",           "transport"),
+        "bibliotheek":             ("Bibliotheek",             "cultuur"),
+        "museum":                  ("Museum",                  "cultuur"),
+        "bioscoop":                ("Bioscoop",                "cultuur"),
     }
     items = []
     for v in lijst:
+        label, cat = labels.get(v["type"], (v["type"].replace("_", " ").title(), "overig"))
         items.append({
             "type": v["type"],
-            "label": labels.get(v["type"], v["type"].replace("_", " ").title()),
+            "label": label,
+            "categorie": cat,
             "emoji": v.get("emoji", "•"),
             "km": v["km"],
         })

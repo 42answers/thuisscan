@@ -727,26 +727,63 @@ function renderCoverDims(dims, waarschuwing) {
   `;
 }
 
-// ---- Voorzieningen-lijst (vervangt de ringen) ----
-// Elk item: emoji + label + mini-balkje (breedte = relatief aan max-afstand)
-// + afstand in km/m. Lezen als een lijst, niet als een ruimtelijk diagram.
+// ---- Voorzieningen-lijst met filter-chips ----
+// Filter-categorieen mappen naar de 'categorie'-tag die de backend meegeeft.
+// 'Alles' is default. State wordt in window._voorzFilter bewaard zodat
+// resize/rerender van kaart de filter niet reset.
+const VOORZ_FILTERS = [
+  { key: 'alles',         label: 'Alles',         icon: '·' },
+  { key: 'kinderen',      label: 'Kinderen',      icon: '👶' },
+  { key: 'zorg',          label: 'Zorg',          icon: '🏥' },
+  { key: 'boodschappen',  label: 'Boodschappen',  icon: '🛒' },
+  { key: 'transport',     label: 'Transport',     icon: '🚆' },
+  { key: 'sport',         label: 'Sport & groen', icon: '⚽' },
+  { key: 'cultuur',       label: 'Cultuur',       icon: '📚' },
+  { key: 'entertainment', label: 'Entertainment', icon: '🍴' },
+];
+
+let _voorzData = null;   // volledige voorzieningen-respons
+let _voorzFilter = 'alles';
+
 function renderVoorzieningenList(voorzieningen) {
+  _voorzData = voorzieningen;
+  _voorzFilter = 'alles';
+  renderVoorzFilters();
+  renderVoorzItems();
+}
+
+function renderVoorzFilters() {
+  const el = document.getElementById('voorz-filters');
+  if (!el) return;
+  const items = (_voorzData && _voorzData.items) || [];
+  // Verberg filter-chips die voor dit adres helemaal geen items opleveren
+  const beschikbaar = new Set(items.map(v => v.categorie).concat(['alles']));
+  el.innerHTML = VOORZ_FILTERS
+    .filter(f => beschikbaar.has(f.key))
+    .map(f => {
+      const active = f.key === _voorzFilter ? ' active' : '';
+      return `<button class="voorz-filter${active}" data-filter="${f.key}">
+        <span class="vf-icon">${f.icon}</span>${escape(f.label)}
+      </button>`;
+    }).join('');
+}
+
+function renderVoorzItems() {
   const el = document.getElementById('voorz-list');
   if (!el) return;
-  const items = (voorzieningen && voorzieningen.items) || [];
+  let items = (_voorzData && _voorzData.items) || [];
+  if (_voorzFilter !== 'alles') {
+    items = items.filter(v => v.categorie === _voorzFilter);
+  }
   if (items.length === 0) {
-    el.innerHTML = '<li class="muted">Geen voorzieningen-data beschikbaar voor deze locatie.</li>';
+    el.innerHTML = '<li class="muted">Geen items in deze categorie.</li>';
     return;
   }
-  // Schaal-balk: max-km bepaalt de 100% breedte. Cap bij 10 km; verder is
-  // toch alles 'ver' en wil je niet dat één extreme waarde alle balkjes
-  // visueel doet schrumpen.
   const maxKm = Math.min(10, Math.max(...items.map(v => v.km || 0)));
   el.innerHTML = items.map((v) => {
     const km = v.km;
     const widthPct = maxKm > 0 ? Math.max(2, Math.min(100, 100 * km / maxKm)) : 0;
     const display = km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
-    // Nabijheids-klasse voor subtiele kleuring: ≤0.5km = goed, ≤2km = neutraal, >2km = ver
     const nearClass = km <= 0.5 ? 'v-near' : km <= 2 ? 'v-mid' : 'v-far';
     return `
       <li class="voorz-item ${nearClass}">
@@ -758,6 +795,15 @@ function renderVoorzieningenList(voorzieningen) {
     `;
   }).join('');
 }
+
+// Filter-chip klikhandler (event delegation, 1x gebonden)
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.voorz-filter');
+  if (!btn) return;
+  _voorzFilter = btn.dataset.filter || 'alles';
+  renderVoorzFilters();
+  renderVoorzItems();
+});
 
 // ---- utils ----
 function setText(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }

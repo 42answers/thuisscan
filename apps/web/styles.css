@@ -726,6 +726,40 @@ main {
   .dim-row { grid-template-columns: 110px 1fr 44px; font-size: 0.82rem; }
 }
 
+/* Filter-chips voor voorzieningen */
+.voorz-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0 0 0.8rem;
+}
+.voorz-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  background: var(--bg);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.voorz-filter:hover {
+  background: var(--accent-soft);
+  color: var(--ink);
+  border-color: var(--accent);
+}
+.voorz-filter.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  font-weight: 500;
+}
+.voorz-filter .vf-icon { font-size: 0.9rem; }
+
 /* Voorzieningen-lijst (vervangt de ringen) */
 .voorz-list {
   list-style: none;
