@@ -584,8 +584,10 @@ function renderCover(cover) {
   if (fill) fill.style.width = `${cover.percentile_nl || 0}%`;
   el.dataset.level = cover.score >= 7 ? 'good' : cover.score >= 4 ? 'neutral' : 'warn';
 
-  // Cover highlights: 2-3 chips die direct "wat valt op" samenvatten
-  renderHighlights(cover.highlights || []);
+  // Chips (Energielabel, WOZ-trend, Paalrot) zijn uit de cover verwijderd —
+  // ze tellen niet mee in de Leefbaarometer-score en suggereerden ten
+  // onrechte dat ze bijdroegen aan de 9/9. (Gaan mogelijk naar een aparte
+  // 'Wat valt op'-sectie boven de kaart.)
 
   // Grid-vs-buurt vergelijking helder verwoord (bv. "100 m: 8/9, buurt: 6/9")
   const compareEl = document.getElementById('cover-compare');
