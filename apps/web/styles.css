@@ -902,6 +902,18 @@ main {
 }
 .trend-dim-good .trend-dim-dir { color: var(--strong); }
 .trend-dim-warn .trend-dim-dir { color: var(--weak); }
+.trend-dim-klasse {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  padding: 0.05rem 0.45rem;
+  background: var(--bg);
+  border-radius: 999px;
+  border: 1px solid var(--line);
+}
+.trend-dim-good .trend-dim-klasse { color: var(--strong); border-color: #c2e4cd; background: #f2faf5; }
+.trend-dim-warn .trend-dim-klasse { color: var(--weak);   border-color: #f0cbbe; background: #fcf5f3; }
 .trend-period {
   font-size: 0.72rem;
   color: var(--muted);

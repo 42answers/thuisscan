@@ -796,34 +796,46 @@ def _serialize_ontwikkeling(
     else:
         chip = "neutral"
 
-    # Alle dimensies met significante afwijking (≥ 2 van stabiel=5) verzamelen,
-    # gesplitst naar verbeterd/verslechterd en elk op grootte gesorteerd.
+    # Alle dimensies met enige afwijking (≥ 1 van stabiel=5) verzamelen.
+    # Threshold = 1 i.p.v. 2 omdat de Leefbaarometer-klasse discreet is (1-9):
+    # bij klasse 6 of 4 is er al een reële verandering die past bij een totaal
+    # dat 'verbeterd' of 'verslechterd' scoort. Threshold 2 verborg te veel.
     verbeteringen: list[dict] = []
     verslechteringen: list[dict] = []
     for key, klasse in (o.per_dimensie or {}).items():
         if klasse is None:
             continue
         delta = klasse - 5
-        if abs(delta) < 2:
+        if delta == 0:
             continue
+        # Gradatie aan de hand van de absolute afwijking van 5
+        if abs(delta) >= 3:
+            gradatie = "sterk"
+        elif abs(delta) == 2:
+            gradatie = "matig"
+        else:  # abs(delta) == 1
+            gradatie = "licht"
+        richting = "verbeterd" if delta > 0 else "verslechterd"
         entry = {
             "key": key,
             "label": _DIM_LABELS.get(key, key),
             "klasse": klasse,
-            "richting": "verbeterd" if delta > 0 else "verslechterd",
+            "richting": richting,
+            "gradatie": gradatie,                         # 'licht' / 'matig' / 'sterk'
+            "richting_tekst": f"{gradatie} {richting}",   # 'licht verbeterd', 'matig verslechterd'
             "delta": delta,
         }
         (verbeteringen if delta > 0 else verslechteringen).append(entry)
     verbeteringen.sort(key=lambda e: -e["delta"])
     verslechteringen.sort(key=lambda e: e["delta"])  # meest-negatief eerst
 
-    # Veranderingen-lijst: top verbetering + top verslechtering (elk als er is).
-    # Zo zie je beide signalen altijd, ook bij gelijke absolute delta.
+    # Veranderingen-lijst: top 2 verbeteringen + top 2 verslechteringen (max).
+    # Meestal zijn er hooguit 1-2 dimensies in beweging; we tonen ze allemaal
+    # als ze echt afwijken. Zo zie je op Paramaribo 10j bv. "Overlast &
+    # veiligheid: licht verbeterd (6/9)" i.p.v. stilte.
     veranderingen: list[dict] = []
-    if verbeteringen:
-        veranderingen.append(verbeteringen[0])
-    if verslechteringen:
-        veranderingen.append(verslechteringen[0])
+    veranderingen.extend(verbeteringen[:2])
+    veranderingen.extend(verslechteringen[:2])
 
     # Backwards-compat: 'sterkste_verandering' pakt de grootste (absolute) —
     # bij gelijke delta geeft de warn de voorkeur (meer actionable).

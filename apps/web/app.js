@@ -869,11 +869,19 @@ function ontwikkelingBlock(o) {
   const changeLines = changes.map(c => {
     const lvl = c.richting === 'verbeterd' ? 'good' : 'warn';
     const arr = c.richting === 'verbeterd' ? '↑' : '↓';
+    // Gradatie uit backend ('licht verbeterd' / 'matig verslechterd' / etc.)
+    // Fallback voor oude responses: alleen richting.
+    const richting = c.richting_tekst || c.richting;
+    // Toon ook de klasse (bv. 6/9) zodat duidelijk is hoe ver iets is bewogen
+    const klasseTag = c.klasse != null
+      ? `<span class="trend-dim-klasse">${c.klasse}/9</span>`
+      : '';
     return `
       <div class="trend-dim trend-dim-${lvl}">
         <span class="trend-dim-arrow">${arr}</span>
         <span class="trend-dim-label">${escape(c.label)}</span>
-        <span class="trend-dim-dir">${escape(c.richting)}</span>
+        <span class="trend-dim-dir">${escape(richting)}</span>
+        ${klasseTag}
       </div>
     `;
   }).join('');
