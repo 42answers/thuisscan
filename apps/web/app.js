@@ -123,8 +123,9 @@ function fieldHTML(label, indicator, fmt, extra, opts) {
     : '';
   const parts = [`<div class="field"><span class="label">${escape(label)}</span><strong${strongClass}>${rendered}${scopeSuffix}</strong>`];
   if (ref) {
-    const arrow = ref.chip_level === 'good' ? '↑' : ref.chip_level === 'warn' ? '↓' : '→';
-    parts.push(`<p class="chip chip-${ref.chip_level}">${arrow} ${escape(ref.chip_text)}</p>`);
+    // Geen pijltje — de chip-kleur (groen/oker/rood) draagt al het signaal.
+    // De pijl ("→" / "↑" / "↓") dubbelde met de kleur en leest rommelig.
+    parts.push(`<p class="chip chip-${ref.chip_level}">${escape(ref.chip_text)}</p>`);
     const refParts = [];
     if (ref.nl_gemiddelde) refParts.push(`NL-gemiddelde: ${escape(ref.nl_gemiddelde)}`);
     if (ref.norm) refParts.push(escape(ref.norm));
@@ -361,7 +362,7 @@ function renderEigendomsverhouding(eig) {
     : '';
   const ref = eig.ref;
   const refHTML = ref ? `
-    <p class="chip chip-${ref.chip_level}">→ ${escape(ref.chip_text)}</p>
+    <p class="chip chip-${ref.chip_level}">${escape(ref.chip_text)}</p>
     ${ref.betekenis ? `<p class="meaning">${escape(ref.betekenis)}</p>` : ''}
     ${ref.nl_gemiddelde ? `<p class="refline">${escape(ref.nl_gemiddelde)}</p>` : ''}
   ` : '';
