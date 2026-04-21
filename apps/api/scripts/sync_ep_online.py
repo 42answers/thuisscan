@@ -104,7 +104,7 @@ def main() -> int:
             print(f"  Metadata: {meta_1.strip()} | {meta_2.strip()}")
             # Regel 3 = header; rest = data via DictReader
             reader = csv.DictReader(text_io, delimiter=";")
-                rows = reader  # streaming iterator; geen list()!
+            rows = reader  # streaming iterator; geen list()!
 
             # Build fresh DB — doen we binnen de with-block zodat de CSV-stream open blijft.
             DB_PATH.parent.mkdir(parents=True, exist_ok=True)
