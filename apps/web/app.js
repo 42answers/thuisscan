@@ -655,7 +655,7 @@ function renderOnderwijs(o) {
       <h4 class="onderwijs-header">Basisscholen</h4>
       <p class="onderwijs-sum">${schHeader} ${schOordelenBadges}</p>
       ${schTopList ? `<ul class="onderwijs-list">${schTopList}</ul>` : ''}
-      <p class="hint">Inspectie-oordeel via Onderwijsinspectie. 'Zonder actueel oordeel' = school heeft sinds laatste herziening geen onderzoek gehad; geen signaal van tekortkoming.</p>
+      <p class="hint hint-small">'Zonder actueel oordeel' = nog geen nieuw inspectiebezoek; geen signaal van tekortkoming.</p>
     </div>
   `;
   section.hidden = false;

@@ -1266,6 +1266,11 @@ main {
   font-size: 0.78rem;
   color: var(--muted);
 }
+.hint-small {
+  font-size: 0.7rem !important;
+  opacity: 0.75;
+  margin-top: 0.5rem !important;
+}
 /* Subtiele niveau-indicator direct achter de value, bv. "€45.400 (wijk)" */
 .scope-inline {
   font-size: 0.72rem;
