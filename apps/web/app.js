@@ -114,13 +114,14 @@ function fieldHTML(label, indicator, fmt, extra, opts) {
   const strongClass = (opts && opts.strong_class) ? ` class="${opts.strong_class}"` : '';
   const rendered = typeof display === 'string' && display.startsWith('<')
     ? display : escape(String(display));
-  const parts = [`<div class="field"><span class="label">${escape(label)}</span><strong${strongClass}>${rendered}</strong>`];
-  // Scope-indicator: toon "Niveau: wijk" of "gemeente" als CBS-data van een
-  // grover niveau komt dan buurt. 'buurt' is default, tonen we niet expliciet.
+  // Scope-indicator inline: als CBS de data op een grover niveau publiceert,
+  // tonen we klein en grijs "(wijk)" achter de value. 'buurt' is default en
+  // blijft onzichtbaar — dat is de hoofdmodus.
   const sc = indicator.scope;
-  if (sc && sc !== 'buurt') {
-    parts.push(`<p class="scope-note">Niveau: <strong>${escape(sc)}</strong> (buurtcijfer niet gepubliceerd door CBS)</p>`);
-  }
+  const scopeSuffix = (sc && sc !== 'buurt')
+    ? ` <span class="scope-inline" title="buurtcijfer niet gepubliceerd door CBS — toont ${escape(sc)}-gemiddelde">(${escape(sc)})</span>`
+    : '';
+  const parts = [`<div class="field"><span class="label">${escape(label)}</span><strong${strongClass}>${rendered}${scopeSuffix}</strong>`];
   if (ref) {
     const arrow = ref.chip_level === 'good' ? '↑' : ref.chip_level === 'warn' ? '↓' : '→';
     parts.push(`<p class="chip chip-${ref.chip_level}">${arrow} ${escape(ref.chip_text)}</p>`);
