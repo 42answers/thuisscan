@@ -193,7 +193,9 @@ function render(d) {
       w.energielabel && w.energielabel.datum ? `Registratie: ${w.energielabel.datum}` : null),
   ]);
 
-  // Sectie 2: wijk-economie (WOZ zit nu in sectie 1, geen duplicatie).
+  // Sectie 2: wijk-economie
+  // Grid 2×2: inkomen · arbeid · opleiding · WOZ-buurt-met-trend
+  // Eronder fullwidth: eigendomsverhouding stacked bar
   const we = d.wijk_economie || {};
   const opl = we.opleiding_hoog;
   const oplExtra = opl && opl.breakdown
@@ -204,6 +206,11 @@ function render(d) {
     fieldHTML('Arbeidsparticipatie', we.arbeidsparticipatie),
     fieldHTML('Hoogopgeleid (hbo/wo)', opl, it => `${it.value}%`, oplExtra),
   ];
+  // 4e cel: buurt-WOZ met trend + mini-historie (vult het lege kwadrant
+  // rechts onder 'Hoogopgeleid'). Data is al aanwezig in we.woz.
+  if (we.woz && we.woz.value) {
+    wijkGrid.push(renderWozBuurt(we.woz));
+  }
   // Eigendomsverhouding als full-width stacked-bar onder de grid
   if (we.eigendomsverhouding) {
     const eigHTML = renderEigendomsverhouding(we.eigendomsverhouding);
@@ -367,6 +374,56 @@ function renderVerkiezing(v) {
     <span class="label">${escape(gemeenteLabel)}</span>
     <ul class="verkiezing-list verkiezing-compact">${rows}</ul>
     ${note}
+  </div>`;
+}
+
+// ---- Buurt-WOZ met trend + mini-historie (sectie 2, 4e grid-cel) ----
+// Toont gemiddelde WOZ-waarde van de buurt + jaarlijkse groei-% + 2-punts
+// historie. Complement op pand-specifieke WOZ in sectie 1: hier zie je het
+// 'buurt-narratief', daar de exacte pand-waarde.
+function renderWozBuurt(woz) {
+  if (!woz || !woz.value) return '';
+  const eur = '€ ' + woz.value.toLocaleString('nl-NL');
+  const scope = woz.scope;
+  const scopeSuffix = (scope && scope !== 'buurt')
+    ? ` <span class="scope-inline" title="buurtcijfer niet gepubliceerd door CBS">(${escape(scope)})</span>`
+    : '';
+  const ref = woz.ref;
+  // Trend: CAGR over beschikbare jaren (trend_pct_per_jaar) + historie
+  const trend = woz.trend_pct_per_jaar;
+  let trendChipHtml = '';
+  if (trend != null) {
+    const lvl = trend >= 3 ? 'good' : trend <= -2 ? 'warn' : 'neutral';
+    const arrow = trend > 0 ? '↑' : trend < 0 ? '↓' : '→';
+    trendChipHtml = `<p class="chip chip-${lvl}">${arrow} ${trend > 0 ? '+' : ''}${trend}% per jaar</p>`;
+  }
+  // Mini-historie uit trend_series (typisch 2 jaren bij KWB)
+  const series = Array.isArray(woz.trend_series) ? woz.trend_series : [];
+  let histHtml = '';
+  if (series.length >= 2) {
+    const oldest = series[0];
+    const newest = series[series.length - 1];
+    histHtml = `<p class="hint">${escape(oldest.year)}: €${oldest.woz_eur.toLocaleString('nl-NL')} → ${escape(newest.year)}: €${newest.woz_eur.toLocaleString('nl-NL')}</p>`;
+  }
+  // Chip over niveau (bv. 'boven NL-gemiddelde')
+  const refChipHtml = ref
+    ? `<p class="chip chip-${ref.chip_level}">${escape(ref.chip_text)}</p>`
+    : '';
+  // NL-referentie
+  const refLine = (ref && (ref.nl_gemiddelde || ref.norm))
+    ? `<p class="refline">${escape(ref.nl_gemiddelde || '')}${ref.norm ? ' · ' + escape(ref.norm) : ''}</p>`
+    : '';
+  const meaning = (ref && ref.betekenis)
+    ? `<p class="meaning">${escape(ref.betekenis)}</p>`
+    : '';
+  return `<div class="field">
+    <span class="label">WOZ-waarde buurt</span>
+    <strong>${eur}${scopeSuffix}</strong>
+    ${refChipHtml}
+    ${trendChipHtml}
+    ${refLine}
+    ${meaning}
+    ${histHtml}
   </div>`;
 }
 
