@@ -741,34 +741,67 @@ def _serialize_ontwikkeling(
     """Serialiseer een Ontwikkeling naar UI-klaar dict.
 
     - `chip_level` kleurt de chip rood/grijs/groen
-    - `beschrijving` is een menselijke duiding ("licht verbeterd",
-      "sterk verslechterd in fysieke omgeving", etc.)
-    - `sterkste_verandering` wijst de dimensie aan die het meest bijdraagt
+    - `beschrijving` is een menselijke duiding
+    - `veranderingen` = lijst van significante dimensie-veranderingen,
+       zowel positief als negatief (threshold: |klasse-5| ≥ 2).
+
+    Belangrijk: we tonen BEIDE kanten wanneer er tegelijkertijd verbetering
+    en verslechtering is. Een 10-jaars trend kan bv. voorzieningen (+) én
+    overlast (-) laten zien — beide horen zichtbaar te zijn, anders verdwijnt
+    het negatieve signaal in het positieve (wat bij gelijke delta gebeurde).
     """
     if o is None:
         return None
-    # Chip-niveau
+    # Chip-niveau op totaal
     if o.label == "verbeterd":
         chip = "good"
     elif o.label == "verslechterd":
         chip = "warn"
     else:
         chip = "neutral"
-    # Sterkste verandering zoeken — dimensie die het verst van 5 (=stabiel) ligt
+
+    # Alle dimensies met significante afwijking (≥ 2 van stabiel=5) verzamelen,
+    # gesplitst naar verbeterd/verslechterd en elk op grootte gesorteerd.
+    verbeteringen: list[dict] = []
+    verslechteringen: list[dict] = []
+    for key, klasse in (o.per_dimensie or {}).items():
+        if klasse is None:
+            continue
+        delta = klasse - 5
+        if abs(delta) < 2:
+            continue
+        entry = {
+            "key": key,
+            "label": _DIM_LABELS.get(key, key),
+            "klasse": klasse,
+            "richting": "verbeterd" if delta > 0 else "verslechterd",
+            "delta": delta,
+        }
+        (verbeteringen if delta > 0 else verslechteringen).append(entry)
+    verbeteringen.sort(key=lambda e: -e["delta"])
+    verslechteringen.sort(key=lambda e: e["delta"])  # meest-negatief eerst
+
+    # Veranderingen-lijst: top verbetering + top verslechtering (elk als er is).
+    # Zo zie je beide signalen altijd, ook bij gelijke absolute delta.
+    veranderingen: list[dict] = []
+    if verbeteringen:
+        veranderingen.append(verbeteringen[0])
+    if verslechteringen:
+        veranderingen.append(verslechteringen[0])
+
+    # Backwards-compat: 'sterkste_verandering' pakt de grootste (absolute) —
+    # bij gelijke delta geeft de warn de voorkeur (meer actionable).
     sterkste = None
-    if o.per_dimensie:
-        key, klasse = max(
-            o.per_dimensie.items(),
-            key=lambda kv: abs((kv[1] or 5) - 5),
-        )
-        if abs(klasse - 5) >= 2:
-            richting = "verbeterd" if klasse > 5 else "verslechterd"
-            sterkste = {
-                "key": key,
-                "label": _DIM_LABELS.get(key, key),
-                "klasse": klasse,
-                "richting": richting,
-            }
+    if verslechteringen and verbeteringen:
+        if abs(verslechteringen[0]["delta"]) >= verbeteringen[0]["delta"]:
+            sterkste = verslechteringen[0]
+        else:
+            sterkste = verbeteringen[0]
+    elif verslechteringen:
+        sterkste = verslechteringen[0]
+    elif verbeteringen:
+        sterkste = verbeteringen[0]
+
     # Compacte menselijke beschrijving — geeft direct context
     if o.score <= 2:
         beschrijving = f"Sterk verslechterd over {horizon_label}."
@@ -782,6 +815,16 @@ def _serialize_ontwikkeling(
         beschrijving = f"Sterk verbeterd over {horizon_label}."
     else:
         beschrijving = f"Verbeterd over {horizon_label}."
+
+    # Bij totaalscore 'stabiel' maar onderliggend wél beweging: nuanceren.
+    # Anders lijkt "stabiel over 10 jaar" in tegenspraak met "voorzieningen
+    # verbeterd + overlast verslechterd" eronder.
+    if o.score == 5 and veranderingen:
+        beschrijving = (
+            f"Totaal stabiel over {horizon_label}, maar onder de motorkap "
+            f"wél beweging:"
+        )
+
     return {
         "periode": o.periode,
         "horizon": horizon_label,
@@ -791,7 +834,8 @@ def _serialize_ontwikkeling(
         "chip_level": chip,
         "raw_delta": o.raw_delta,
         "beschrijving": beschrijving,
-        "sterkste_verandering": sterkste,
+        "sterkste_verandering": sterkste,     # legacy veld, 1 item
+        "veranderingen": veranderingen,       # nieuwe: lijst van 1-2 items
         "per_dimensie": [
             {
                 "key": k,

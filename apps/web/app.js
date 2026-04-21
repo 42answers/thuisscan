@@ -747,9 +747,15 @@ function renderCoverDims(dims, waarschuwing) {
   const rows = dims.map((d) => {
     const pct = Math.max(3, (d.score - 1) / 8 * 100);
     const level = d.score >= 7 ? 'good' : d.score >= 4 ? 'neutral' : 'warn';
+    // Beschrijving staat nu altijd zichtbaar onder het label — op mobile
+    // werkt 'title' tooltip niet (geen hover), dus de tekst is cruciaal
+    // voor begrip: wat meet "Woningen" of "Fysieke omgeving" eigenlijk?
     return `
-      <li class="dim-row" title="${escape(d.beschrijving)}">
-        <span class="dim-label">${escape(d.label)}</span>
+      <li class="dim-row">
+        <div class="dim-info">
+          <span class="dim-label">${escape(d.label)}</span>
+          <span class="dim-desc">${escape(d.beschrijving)}</span>
+        </div>
         <span class="dim-bar"><span class="dim-bar-fill dim-${level}" style="width:${pct}%"></span></span>
         <span class="dim-score">${d.score}<span class="dim-max">/9</span></span>
       </li>
@@ -800,9 +806,22 @@ function renderCoverOntwikkeling(ontwikkeling) {
 function ontwikkelingBlock(o) {
   const chipLevel = o.chip_level || 'neutral';
   const arrow = o.klasse >= 7 ? '↑' : o.klasse <= 3 ? '↓' : '→';
-  const sub = o.sterkste_verandering
-    ? `<div class="trend-dim">${escape(o.sterkste_verandering.label)}: ${o.sterkste_verandering.richting}</div>`
-    : '';
+  // Toon ALLE significante veranderingen (top verbetering + top verslechtering).
+  // Fallback naar legacy 'sterkste_verandering' voor oude API-responses.
+  const changes = Array.isArray(o.veranderingen) && o.veranderingen.length
+    ? o.veranderingen
+    : (o.sterkste_verandering ? [o.sterkste_verandering] : []);
+  const changeLines = changes.map(c => {
+    const lvl = c.richting === 'verbeterd' ? 'good' : 'warn';
+    const arr = c.richting === 'verbeterd' ? '↑' : '↓';
+    return `
+      <div class="trend-dim trend-dim-${lvl}">
+        <span class="trend-dim-arrow">${arr}</span>
+        <span class="trend-dim-label">${escape(c.label)}</span>
+        <span class="trend-dim-dir">${escape(c.richting)}</span>
+      </div>
+    `;
+  }).join('');
   return `
     <div class="trend-block trend-${chipLevel}">
       <div class="trend-head">
@@ -811,7 +830,7 @@ function ontwikkelingBlock(o) {
         <span class="trend-chip trend-chip-${chipLevel}">${escape(capitalize(o.label || ''))}</span>
       </div>
       <div class="trend-desc">${escape(o.beschrijving || '')}</div>
-      ${sub}
+      ${changeLines}
       <div class="trend-period">${escape(o.periode || '')}</div>
     </div>
   `;

@@ -22,6 +22,13 @@ html, body {
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
   line-height: 1.5;
+  /* Voorkom horizontaal scrollen op mobile bij brede iframes / lange strings */
+  overflow-x: hidden;
+}
+/* Respecteer iPhone notch / dynamic island */
+body {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 /* Hero */
@@ -500,6 +507,10 @@ main {
   .cat-bar-row { margin-left: 0; }
   .cat-sam { margin-left: 0; }
   .vraag-factoren { padding-left: 0.8rem; }
+  /* Vraag-card padding compacter op mobile */
+  .vraag-card { padding: 0.9rem 1rem; }
+  /* Advies-blok: iets minder padding zodat tekst meer ruimte krijgt */
+  .vraag-advies { padding: 0.7rem 0.85rem; font-size: 0.85rem; gap: 0.5rem; }
 }
 .vraag-factor {
   display: grid;
@@ -678,14 +689,25 @@ main {
   padding: 0;
   margin: 0;
   display: grid;
-  gap: 0.35rem;
+  gap: 0.75rem;
 }
 .dim-row {
   display: grid;
-  grid-template-columns: 170px 1fr 52px;
+  grid-template-columns: 220px 1fr 52px;
   gap: 0.8rem;
   align-items: center;
   font-size: 0.9rem;
+}
+.dim-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.dim-desc {
+  font-size: 0.74rem;
+  color: var(--muted);
+  line-height: 1.35;
 }
 
 .cover-waarschuwing {
@@ -722,8 +744,22 @@ main {
 }
 .dim-max { color: var(--muted); font-weight: 400; font-size: 0.8rem; }
 
-@media (max-width: 560px) {
-  .dim-row { grid-template-columns: 110px 1fr 44px; font-size: 0.82rem; }
+@media (max-width: 640px) {
+  /* Op mobile: 2-rijen layout — label+desc bovenaan, bar+score eronder.
+     Voorkomt dat de beschrijving in een smalle kolom geperst wordt. */
+  .dim-row {
+    grid-template-columns: 1fr 52px;
+    grid-template-areas:
+      "info info"
+      "bar  score";
+    row-gap: 0.4rem;
+    column-gap: 0.6rem;
+    font-size: 0.88rem;
+  }
+  .dim-info  { grid-area: info; }
+  .dim-bar   { grid-area: bar; }
+  .dim-score { grid-area: score; }
+  .dim-desc  { font-size: 0.78rem; }
 }
 
 /* Trend / ontwikkeling — compacte 2-kolommen grid (recent + lange termijn) */
@@ -791,9 +827,25 @@ main {
   line-height: 1.4;
 }
 .trend-dim {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
   font-size: 0.8rem;
-  color: var(--muted);
+  padding: 0.15rem 0;
 }
+.trend-dim-arrow {
+  font-weight: 700;
+  line-height: 1;
+}
+.trend-dim-good .trend-dim-arrow { color: var(--strong); }
+.trend-dim-warn .trend-dim-arrow { color: var(--weak); }
+.trend-dim-label { color: var(--ink); font-weight: 500; }
+.trend-dim-dir {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.trend-dim-good .trend-dim-dir { color: var(--strong); }
+.trend-dim-warn .trend-dim-dir { color: var(--weak); }
 .trend-period {
   font-size: 0.72rem;
   color: var(--muted);
@@ -949,8 +1001,81 @@ main {
   font-size: 0.95rem;
 }
 
+/* ============================================================
+   MOBILE — breedte-drempels:
+     ≤720px: tablet + compact (reduceert padding, stackt grids)
+     ≤560px: phone (al via losse queries bovenaan; deze bundelt overig)
+     ≤380px: smalle iPhone SE / mini — nog tighter typografie
+   ============================================================ */
+@media (max-width: 720px) {
+  /* Hero: veel minder top-ruimte — gebruikers willen direct zoeken */
+  .hero { padding: 2rem 1rem 1.25rem; }
+  .hero h1 { font-size: 2rem; }
+  .subtitle { font-size: 1rem; margin-bottom: 1.25rem; }
+
+  /* Search: input blijft ≥16px om iOS-zoom te voorkomen */
+  .search input { padding: 0.8rem 1rem; font-size: 1rem; }
+
+  /* Main content: minder zij-padding, meer ruimte voor content */
+  main { padding: 0 1rem 4rem; }
+
+  /* Cards: strakker aan de rand — geen 1.5rem meer */
+  .card { padding: 1.1rem 1.1rem; }
+  .cover { padding: 1.1rem; }
+
+  /* Adres-kop: iets kleiner voor balans */
+  .section-address h2 { font-size: 1.35rem; }
+
+  /* Map: compacter, neemt niet halve scherm */
+  .map-viewport { height: 280px; }
+
+  /* Map-tabs: compacter padding zodat 4 labels passen zonder ellipsis */
+  .map-tab {
+    padding: 0.7rem 0.3rem;
+    font-size: 0.78rem;
+    /* Min tap-target 44px hoogte behouden */
+    min-height: 44px;
+  }
+}
+
 @media (max-width: 560px) {
   .rings-container { grid-template-columns: 1fr; }
-  .grid-2 { grid-template-columns: 1fr; }
-  .hero h1 { font-size: 2rem; }
+  .grid-2 { grid-template-columns: 1fr; gap: 0.8rem; }
+
+  /* Op phones: filter-pills compacter zodat meer per rij passen */
+  .voorz-filter {
+    padding: 0.35rem 0.6rem;
+    font-size: 0.78rem;
+    /* Tap-target minimaal 36px — pills mogen kleiner dan echte knoppen */
+    min-height: 36px;
+  }
+
+  /* Map-tabs: alleen emoji + 1-woord label op smal scherm */
+  .map-tab { font-size: 0.72rem; padding: 0.65rem 0.2rem; }
+
+  /* Cover-compare tekst: wat meer lucht */
+  .cover-compare { font-size: 0.82rem; }
+
+  /* Trend-periode dichter tegen beschrijving — geen "stretch to bottom" */
+  .trend-block { padding: 0.7rem 0.85rem; }
+
+  /* Voorz-items: iets smaller min-target maar nog leesbaar */
+  .voorz-item { padding: 0.55rem 0; font-size: 0.9rem; }
+
+  /* Grid-2 fields: tijdelijk strongs iets kleiner op phone */
+  .grid-2 strong, .field strong { font-size: 1.25rem; }
+
+  /* Hero nog iets kleiner */
+  .hero { padding-top: 1.5rem; }
+  .hero h1 { font-size: 1.75rem; }
+}
+
+@media (max-width: 380px) {
+  /* iPhone SE / mini */
+  .hero h1 { font-size: 1.55rem; }
+  .cover-score strong { font-size: 2.5rem; }
+  .cover-top { grid-template-columns: 70px 1fr; gap: 0.8rem; }
+  .map-tab { font-size: 0.68rem; padding: 0.6rem 0.15rem; }
+  /* Map iets korter zodat content sneller in beeld komt */
+  .map-viewport { height: 240px; }
 }
