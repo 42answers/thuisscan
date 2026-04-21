@@ -359,8 +359,8 @@ async function renderMap(d) {
   const pandId = (d.woning && d.woning.bag_pand_id) || null;
   if (pandId) _prefetchPand(pandId);
 
-  // Reset tabs: Satelliet is default (meest visueel herkenbaar)
-  _activateTab('satellite');
+  // Reset tabs: Kadaster is default — neutrale kaart met pand-outline
+  _activateTab('map');
 
   // Wacht tot MapLibre geladen is (script had `defer`)
   if (typeof maplibregl === 'undefined') {
@@ -448,23 +448,30 @@ function _loadStreetView() {
   //     automatisch; resultaat is vaak al redelijk gericht op de woning.
   //     Wanneer polygoon binnenkomt, herlaadt _prefetchPand() dit iframe
   //     met de juiste heading (camera draait alsnog naar het pand).
+  // Centroid beschikbaar → camera-positie ~35m uit pand, heading richting pand.
+  // Grotere offset (35m ipv 20m) zorgt dat Google een straat-pano pakt en niet
+  // een verdwaalde binnen-pano/zwarte view. Zonder centroid: adres-coords +
+  // default heading; Google kiest dichtstbijzijnde buiten-pano.
   const centroid = _mapPandCentroid;
   let streetLat = lat, streetLon = lon, heading = 0;
   if (centroid) {
     const [cLat, cLon] = centroid;
-    const offsetM = 20;
-    streetLat = cLat - (offsetM / 111000);  // 1° lat ≈ 111 km
+    const offsetM = 35;
+    streetLat = cLat - (offsetM / 111000);
     streetLon = cLon;
     heading = _bearing(streetLat, streetLon, cLat, cLon);
   }
   const wanted = `sv:${streetLat.toFixed(6)},${streetLon.toFixed(6)}:${Math.round(heading)}`;
   if (pane.dataset.loaded === wanted) return;
   pane.dataset.loaded = wanted;
+  // source=outdoor dwingt Google om alleen gemarkeerde buitenpano's te tonen
+  // (geen interieur-pano's, museum-views etc.) — veel betrouwbaarder resultaat.
   const url = `https://www.google.com/maps/embed/v1/streetview`
     + `?key=${encodeURIComponent(key)}`
     + `&location=${streetLat},${streetLon}`
     + `&heading=${Math.round(heading)}`
-    + `&pitch=5&fov=90`;
+    + `&pitch=5&fov=90`
+    + `&source=outdoor`;
   pane.innerHTML = `<iframe loading="lazy" allowfullscreen src="${url}"></iframe>`;
 }
 
