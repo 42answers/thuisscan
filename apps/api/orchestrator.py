@@ -94,7 +94,11 @@ async def scan(query: str) -> ScanResult:
     # Stap 2a: parallel BAG + CBS
     # BAG + CBS zijn los van elkaar; we doen ze tegelijk.
     bag_task = _cached_fetch_bag(match.bag_verblijfsobject_id or "")
-    cbs_task = _cached_fetch_cbs(match.buurtcode or "")
+    cbs_task = _cached_fetch_cbs(
+        match.buurtcode or "",
+        wijkcode=match.wijkcode,
+        gemeentecode=match.gemeentecode,
+    )
     pand, buurt = await asyncio.gather(bag_task, cbs_task)
 
     # Stap 2b: Politie + uitgebreide voorzieningen (parallel).
@@ -177,14 +181,20 @@ async def _cached_fetch_bag(vbo_id: str) -> Optional[bag.PandDetails]:
     return result
 
 
-async def _cached_fetch_cbs(buurtcode: str) -> Optional[cbs.BuurtStats]:
+async def _cached_fetch_cbs(
+    buurtcode: str,
+    wijkcode: Optional[str] = None,
+    gemeentecode: Optional[str] = None,
+) -> Optional[cbs.BuurtStats]:
+    """Cached CBS-fetch met hiërarchische fallback buurt → wijk → gemeente."""
     if not buurtcode:
         return None
-    key = f"cbs:{buurtcode}"
+    # Cache-key bevat de fallback-dimensies zodat we niet door elkaar halen
+    key = f"cbs:{buurtcode}:{wijkcode}:{gemeentecode}"
     hit = _cache_get(key, _BUURT_TTL_S)
     if isinstance(hit, cbs.BuurtStats):
         return hit
-    result = await cbs.fetch_buurt(buurtcode)
+    result = await cbs.fetch_buurt(buurtcode, wijkcode, gemeentecode)
     _cache_set(key, result)
     return result
 
@@ -441,6 +451,12 @@ def _build_wijk_economie(
         if buurt.opleiding_midden is not None:
             opl_midden_pct = round(100 * buurt.opleiding_midden / opl_totaal, 1)
 
+    scope = buurt.scope or {}
+    # Opleiding-scope = laagste beschikbare; als alle 3 opleidings-velden
+    # van wijk komen, is het percentage ook op wijk-niveau
+    opl_scopes = [scope.get(k) for k in ("opleiding_laag", "opleiding_midden", "opleiding_hoog")]
+    opl_scope = next((s for s in opl_scopes if s), None)
+
     return {
         "available": True,
         "woz": {
@@ -449,21 +465,25 @@ def _build_wijk_economie(
             "ref": _as_ref(references.ref_woz(woz_eur)),
             "trend_pct_per_jaar": trend_pct,
             "trend_series": woz_trend,
+            "scope": scope.get("woz_gemiddeld"),
         },
         "inkomen_per_inwoner": {
             "value": inkomen_eur,
             "unit": "€",
             "ref": _as_ref(references.ref_inkomen(inkomen_eur)),
+            "scope": scope.get("inkomen_per_inwoner"),
         },
         "arbeidsparticipatie": {
             "value": buurt.arbeidsparticipatie_pct,
             "unit": "%",
             "ref": _as_ref(references.ref_arbeidsparticipatie(buurt.arbeidsparticipatie_pct)),
+            "scope": scope.get("arbeidsparticipatie"),
         },
         "opleiding_hoog": {
             "value": opl_hoog_pct,
             "unit": "%",
             "ref": _as_ref(references.ref_opleiding_hoog(opl_hoog_pct)),
+            "scope": opl_scope,
             "breakdown": {
                 "laag_pct": opl_laag_pct,
                 "midden_pct": opl_midden_pct,
@@ -490,27 +510,32 @@ def _build_buren(
         if buurt.huishoudens_met_kinderen is not None and h_tot > 0
         else None
     )
+    scope = buurt.scope or {}
     out = {
         "available": True,
         "eenpersoons": {
             "value": pct_eenpersoons,
             "unit": "%",
             "ref": _as_ref(references.ref_eenpersoons(pct_eenpersoons)),
+            "scope": scope.get("eenpersoonshuishoudens") or scope.get("huishoudens"),
         },
         "met_kinderen": {
             "value": pct_met_kinderen,
             "unit": "%",
             "ref": _as_ref(references.ref_met_kinderen(pct_met_kinderen)),
+            "scope": scope.get("huishoudens_met_kinderen"),
         },
         "inwoners": {
             "value": buurt.inwoners,
             "unit": None,
             "ref": _as_ref(references.ref_inwoners(buurt.inwoners)),
+            "scope": scope.get("inwoners"),
         },
         "dichtheid": {
             "value": buurt.bevolkingsdichtheid_per_km2,
             "unit": "per km²",
             "ref": _as_ref(references.ref_dichtheid(buurt.bevolkingsdichtheid_per_km2)),
+            "scope": scope.get("bevolkingsdichtheid"),
         },
     }
     if verkiezing is not None:

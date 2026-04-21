@@ -113,12 +113,17 @@ MISSING_ATTRIBUTES = {"None", "Missing", "Imputed", "Unknown"}
 
 @dataclass
 class BuurtStats:
-    """Resultaat van CBS-lookup op buurtcode.
+    """Resultaat van CBS-lookup op buurtcode met fallback naar wijk/gemeente.
 
-    Alle velden zijn Optional — CBS publiceert niet elk cijfer voor elke buurt
-    (geheimhouding bij te kleine aantallen, peiljaar-verschuivingen). None = UI
-    toont 'onbekend' i.p.v. een verzonnen 0.
+    Per veld bewaren we in `scope` uit welk niveau de waarde kwam:
+      - 'buurt'    : directe buurtcode-hit (meest specifiek, vaak leeg bij
+                     kleine buurten door CBS-geheimhouding)
+      - 'wijk'     : fallback naar wijkcode (3-10x groter dan buurt)
+      - 'gemeente' : fallback naar gemeentecode (laatste optie)
+      - None       : niet beschikbaar op enig niveau
     """
+
+    scope: dict  # {veldnaam: 'buurt' | 'wijk' | 'gemeente' | None}
 
     buurtcode: str
     # Sectie 2
@@ -145,45 +150,113 @@ class BuurtStats:
     afstand_school_km: Optional[float]
 
 
-async def fetch_buurt(buurtcode: str) -> BuurtStats:
-    """Haal alle relevante indicatoren op voor één buurt via één OData-call.
+async def fetch_buurt(
+    buurtcode: str,
+    wijkcode: Optional[str] = None,
+    gemeentecode: Optional[str] = None,
+) -> BuurtStats:
+    """Haal alle measures op voor een buurt, met hiërarchische fallback.
 
-    We vragen alle measures in één $filter met 'in'-operator op Measure,
-    zodat we niet 15x round-trippen. Eén HTTP-call is tientallen ms;
-    15 calls zou >1s aan latency toevoegen.
+    Stap 1: buurtcode query (meest specifiek)
+    Stap 2: voor velden die leeg bleven (CBS-geheimhouding), probeer wijkcode
+    Stap 3: voor wat nog steeds leeg is, probeer gemeentecode
+
+    Per veld wordt het niveau (buurt/wijk/gemeente) bijgehouden in `scope`,
+    zodat de UI kan tonen: "Niveau: wijk" i.p.v. doen alsof het buurt-data is.
+
+    Gemeentecode-formaat: PDOK levert '0363' (4 cijfers); CBS verwacht 'GM0363'.
+    We normaliseren intern.
     """
-    measure_codes = list(MEASURES.values())
-    # OData 'in' expressie: Measure in ('M001642','M000224',...)
-    in_list = ",".join(f"'{c}'" for c in measure_codes)
-    filter_expr = f"WijkenEnBuurten eq '{buurtcode}' and Measure in ({in_list})"
+    # Stap 1: buurt
+    parsed, got_scope = await _query_measures(buurtcode, list(MEASURES.values()))
+    scope: dict[str, Optional[str]] = {k: ("buurt" if got_scope.get(MEASURES[k]) else None) for k in MEASURES}
 
+    # Stap 2: wijk — alleen voor velden die nog leeg zijn
+    missing_codes = [MEASURES[k] for k, v in parsed.items() if v is None]
+    if missing_codes and wijkcode:
+        wp, _ = await _query_measures(wijkcode, missing_codes)
+        # wp heeft veldnamen als keys (niet measure-codes)
+        for field, val in wp.items():
+            if val is not None and parsed[field] is None:
+                parsed[field] = val
+                scope[field] = "wijk"
+
+    # Stap 3: gemeente — laatste fallback
+    missing_codes_2 = [MEASURES[k] for k, v in parsed.items() if v is None]
+    if missing_codes_2 and gemeentecode:
+        gm_code = gemeentecode if gemeentecode.startswith("GM") else f"GM{gemeentecode}"
+        gp, _ = await _query_measures(gm_code, missing_codes_2)
+        for field, val in gp.items():
+            if val is not None and parsed[field] is None:
+                parsed[field] = val
+                scope[field] = "gemeente"
+
+    # Opleidingsniveau is een 3-tupel (laag/midden/hoog) dat samen het totaal
+    # vormt. Mix van scopes geeft een onzinnige % (teller op ene schaal, noemer
+    # op andere). Forceer: alle 3 op de ruimste scope waar minstens 1 beschikbaar is.
+    opl_keys = ("opleiding_laag", "opleiding_midden", "opleiding_hoog")
+    opl_scopes = [scope.get(k) for k in opl_keys]
+    if len(set(s for s in opl_scopes if s)) > 1:
+        # Mix gedetecteerd — herlaad alle 3 op de ruimste scope
+        rank = {"buurt": 0, "wijk": 1, "gemeente": 2}
+        ruimst = max((s for s in opl_scopes if s), key=lambda s: rank[s])
+        if ruimst == "wijk" and wijkcode:
+            reload_code = wijkcode
+        elif ruimst == "gemeente" and gemeentecode:
+            reload_code = gemeentecode if gemeentecode.startswith("GM") else f"GM{gemeentecode}"
+        else:
+            reload_code = None
+        if reload_code:
+            rp, _ = await _query_measures(reload_code, [MEASURES[k] for k in opl_keys])
+            for k in opl_keys:
+                if rp.get(k) is not None:
+                    parsed[k] = rp[k]
+                    scope[k] = ruimst
+
+    return _build_buurtstats(buurtcode, parsed, scope)
+
+
+async def _query_measures(
+    wnb_code: str, measure_codes: list[str]
+) -> tuple[dict, dict]:
+    """Eén OData-call op 85984NED voor een lijst measures.
+
+    Retourneert:
+      parsed    : {veldnaam: Value} — alleen niet-lege
+      got_scope : {measure_code: True} — voor welke codes data is gevonden
+    """
+    if not wnb_code or not measure_codes:
+        return ({k: None for k in MEASURES}, {})
+    in_list = ",".join(f"'{c}'" for c in measure_codes)
+    filter_expr = f"WijkenEnBuurten eq '{wnb_code}' and Measure in ({in_list})"
     params = {
         "$filter": filter_expr,
         "$select": "Measure,Value,StringValue,ValueAttribute",
         "$top": str(len(measure_codes)),
     }
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_S) as client:
+            resp = await client.get(f"{BASE_URL}/Observations", params=params)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:
+        return ({k: None for k in MEASURES}, {})
 
-    async with httpx.AsyncClient(timeout=TIMEOUT_S) as client:
-        resp = await client.get(f"{BASE_URL}/Observations", params=params)
-        resp.raise_for_status()
-        data = resp.json()
-
-    # Invert MEASURES: code -> veldnaam
     code_to_field = {v: k for k, v in MEASURES.items()}
-
-    # Parse observations: één rij per measure voor deze buurt
     parsed: dict[str, Optional[float]] = {k: None for k in MEASURES}
+    got: dict[str, bool] = {}
     for obs in data.get("value", []):
         code = obs.get("Measure")
-        field = code_to_field.get(code)
-        if not field:
-            continue
         if obs.get("ValueAttribute") in MISSING_ATTRIBUTES and obs.get("Value") is None:
-            # Expliciet ontbrekende waarde (geheimhouding of n.v.t.)
             continue
-        parsed[field] = obs.get("Value")
-
-    return _build_buurtstats(buurtcode, parsed)
+        val = obs.get("Value")
+        if val is None:
+            continue
+        got[code] = True
+        field = code_to_field.get(code)
+        if field:
+            parsed[field] = val
+    return parsed, got
 
 
 async def fetch_voorzieningen(buurtcode: str, gemeentecode: str) -> list[dict]:
@@ -296,12 +369,13 @@ async def _query_voorzieningen(wnb_code: str, in_list: str) -> dict[str, float]:
     return out
 
 
-def _build_buurtstats(buurtcode: str, parsed: dict) -> BuurtStats:
-    """Helper; blijft bestaan voor compatibiliteit met de oude signatuur."""
+def _build_buurtstats(buurtcode: str, parsed: dict, scope: dict) -> BuurtStats:
+    """Bouwt BuurtStats uit parsed dict + scope-mapping."""
     def as_int(v: Optional[float]) -> Optional[int]:
         return int(v) if v is not None else None
 
     return BuurtStats(
+        scope=scope,
         buurtcode=buurtcode,
         woz_gemiddeld_x1000_eur=parsed["woz_gemiddeld"],
         inkomen_per_inwoner_x1000_eur=parsed["inkomen_per_inwoner"],

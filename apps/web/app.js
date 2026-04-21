@@ -110,11 +110,15 @@ function fieldHTML(label, indicator, fmt, extra, opts) {
   const display = fmt ? fmt(indicator) : `${indicator.value}${indicator.unit ? ' ' + indicator.unit : ''}`;
   const ref = indicator.ref;
   const strongClass = (opts && opts.strong_class) ? ` class="${opts.strong_class}"` : '';
-  // Als fmt een HTML-string teruggaf (bv. met badge-span), niet escapen.
-  // Heuristiek: start met '<' = al HTML.
   const rendered = typeof display === 'string' && display.startsWith('<')
     ? display : escape(String(display));
   const parts = [`<div class="field"><span class="label">${escape(label)}</span><strong${strongClass}>${rendered}</strong>`];
+  // Scope-indicator: toon "Niveau: wijk" of "gemeente" als CBS-data van een
+  // grover niveau komt dan buurt. 'buurt' is default, tonen we niet expliciet.
+  const sc = indicator.scope;
+  if (sc && sc !== 'buurt') {
+    parts.push(`<p class="scope-note">Niveau: <strong>${escape(sc)}</strong> (buurtcijfer niet gepubliceerd door CBS)</p>`);
+  }
   if (ref) {
     const arrow = ref.chip_level === 'good' ? '↑' : ref.chip_level === 'warn' ? '↓' : '→';
     parts.push(`<p class="chip chip-${ref.chip_level}">${arrow} ${escape(ref.chip_text)}</p>`);

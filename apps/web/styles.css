@@ -802,6 +802,16 @@ main {
   font-size: 0.78rem;
   color: var(--muted);
 }
+.scope-note {
+  margin: 0.3rem 0 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+  background: #fdf5e6;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  display: inline-block;
+}
+.scope-note strong { color: #8c6710; font-weight: 600; text-transform: capitalize; }
 .muted-strong { color: var(--muted); font-weight: 500; font-size: 1.1rem; }
 
 @media (max-width: 560px) {
