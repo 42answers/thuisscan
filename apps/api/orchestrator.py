@@ -24,7 +24,7 @@ from typing import Optional
 
 import references
 import social_questions
-from adapters import bag, bereikbaarheid, cbs, kadaster_woz, klimaat, leefbaarometer, onderwijs, overpass, pdok_locatie, politie, rivm_geluid, rivm_lki, rvo_ep, verkiezingen, woz_loket
+from adapters import bag, bereikbaarheid, cbs, kadaster_woz, klimaat, leefbaarometer, onderwijs, overpass, pdok_locatie, politie, rivm_geluid, rivm_lki, rvo_ep, verkiezingen, woning_extras, woz_loket
 
 
 def _as_ref(r) -> Optional[dict]:
@@ -139,8 +139,11 @@ async def scan(query: str) -> ScanResult:
     lucht_task = _cached_fetch_lucht(match.rd_x, match.rd_y)
     leef_task = _cached_fetch_leefbaarheid(match.rd_x, match.rd_y)
     geluid_task = _cached_fetch_geluid(match.rd_x, match.rd_y)
-    lucht, leefbaarheid, geluid = await asyncio.gather(
-        lucht_task, leef_task, geluid_task
+    extras_task = _cached_fetch_woning_extras(
+        match.lat, match.lon, match.rd_x, match.rd_y, match.gemeentecode
+    )
+    lucht, leefbaarheid, geluid, extras = await asyncio.gather(
+        lucht_task, leef_task, geluid_task, extras_task
     )
 
     # Buurtnaam uit Leefbaarometer: handig voor het adres-kopje
@@ -161,7 +164,7 @@ async def scan(query: str) -> ScanResult:
             "wgs84": {"lat": match.lat, "lon": match.lon},
             "rd": {"x": match.rd_x, "y": match.rd_y},
         },
-        woning=_build_woning(pand, energielabel, woz_adres),
+        woning=_build_woning(pand, energielabel, woz_adres, extras),
         wijk_economie=_build_wijk_economie(buurt, woz_trend),
 
         buren=_build_buren(buurt, tk_uitslag, migratie),
@@ -357,6 +360,34 @@ async def fetch_voorzieningen(
     osm_pois, cbs_voorz = await asyncio.gather(osm_task, cbs_task)
     merged = _merge_voorzieningen(osm_pois, cbs_voorz)
     return _build_voorzieningen(merged)
+
+
+async def _cached_fetch_woning_extras(
+    lat: float, lon: float, rd_x: float, rd_y: float,
+    gemeentecode: Optional[str],
+) -> Optional[woning_extras.WoningExtras]:
+    """Rijksmonument + erfpacht + groen-nabij parallel.
+
+    Alle 3 zijn goedkoop genoeg voor main /scan flow (~300-800ms totaal).
+    Cache 30 dagen — data wijzigt zelden (monumenten-register,
+    erfpacht-prevalentie, groen in buurt).
+    """
+    if not (lat and lon and rd_x and rd_y):
+        return None
+    key = f"woning_extras:{round(lat*1000)}_{round(lon*1000)}:{gemeentecode}"
+    hit = _cache_get(key, 30 * 24 * 3600)
+    if isinstance(hit, woning_extras.WoningExtras):
+        return hit
+    try:
+        result = await woning_extras.fetch_woning_extras(
+            lat=lat, lon=lon, rd_x=rd_x, rd_y=rd_y,
+            gemeentecode=gemeentecode,
+        )
+    except Exception:
+        return None
+    if result:
+        _cache_set(key, result)
+    return result
 
 
 async def _cached_fetch_bereikbaarheid(
@@ -582,6 +613,7 @@ def _build_woning(
     pand: Optional[bag.PandDetails],
     energielabel: Optional[rvo_ep.Energielabel],
     woz_adres: Optional[kadaster_woz.WozWaarde] = None,
+    extras: Optional[woning_extras.WoningExtras] = None,
 ) -> dict:
     if pand is None:
         return {"available": False}
@@ -619,6 +651,33 @@ def _build_woning(
             "historie": woz_adres.historie,
             "ref": _as_ref(references.ref_woz(woz_adres.huidige_waarde_eur)),
         }
+
+    # Woning-extras: Rijksmonument / Erfpacht-prevalentie / Groen in buurt
+    if extras is not None:
+        if extras.rijksmonument is not None:
+            rm = extras.rijksmonument
+            out["rijksmonument"] = {
+                "monument_nummer": rm.monument_nummer,
+                "hoofdcategorie": rm.hoofdcategorie,
+                "subcategorie": rm.subcategorie,
+                "aard_monument": rm.aard_monument,
+                "url": rm.url,
+            }
+        if extras.erfpacht is not None:
+            out["erfpacht"] = {
+                "niveau": extras.erfpacht.niveau,
+                "pct_schatting": extras.erfpacht.pct_schatting,
+                "toelichting": extras.erfpacht.toelichting,
+            }
+        if extras.groen is not None:
+            g = extras.groen
+            out["groen"] = {
+                "straal_m": g.straal_m,
+                "groen_m2": g.groen_m2,
+                "cirkel_m2": g.cirkel_m2,
+                "groen_pct": g.groen_pct,
+                "aantal_elementen": g.aantal_elementen,
+            }
     return out
 
 

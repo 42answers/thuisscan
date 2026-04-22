@@ -183,7 +183,7 @@ function render(d) {
   const wozExtra = wozAdres && wozAdres.peildatum
     ? `Peildatum ${wozAdres.peildatum} · bron Kadaster WOZ`
     : (wozBuurt && wozBuurt.trend_pct_per_jaar != null ? renderTrend(wozBuurt) : null);
-  renderGrid('s-woning-grid', [
+  const woningCells = [
     fieldHTML('Bouwjaar', w.bouwjaar, it => `${it.value}`),
     fieldHTML('Oppervlakte', w.oppervlakte,
       it => `${it.value?.toLocaleString('nl-NL')} m²`),
@@ -191,7 +191,17 @@ function render(d) {
     fieldHTML('Energielabel', w.energielabel,
       it => it.value ? `<span class="${labelClass}">${it.value}</span>` : 'niet geregistreerd',
       w.energielabel && w.energielabel.datum ? `Registratie: ${w.energielabel.datum}` : null),
-  ]);
+  ];
+  // Extra's: Rijksmonument / Erfpacht / Groen — alleen tonen als data er is.
+  // Deze 3 items zijn vaak niet-standaard maar waar ze spelen, zijn ze
+  // cruciaal (monumenten-verbouwregels, erfpachtkosten, groene ligging).
+  const rijksHTML = renderRijksmonument(w.rijksmonument);
+  if (rijksHTML) woningCells.push(rijksHTML);
+  const erfpachtHTML = renderErfpacht(w.erfpacht);
+  if (erfpachtHTML) woningCells.push(erfpachtHTML);
+  const groenHTML = renderGroen(w.groen);
+  if (groenHTML) woningCells.push(groenHTML);
+  renderGrid('s-woning-grid', woningCells);
 
   // Sectie 2: wijk-economie
   // Grid 2×2: inkomen · arbeid · opleiding · WOZ-buurt-met-trend
@@ -989,6 +999,56 @@ function renderTrend(woz) {
     ? `<span class="spark">${series.map(p => `<span title="${p.year}: ${formatEuro(p.woz_eur)}">${p.year}: ${formatEuro(p.woz_eur)}</span>`).join(' → ')}</span>`
     : '';
   return `<span class="trend-chip trend-${color}">${arrow} ${pct > 0 ? '+' : ''}${pct}% per jaar</span> ${sparkline}`;
+}
+
+// ---- Woning-extras: Rijksmonument / Erfpacht / Groen ----
+// Losse field-cellen in sectie 1 grid. Tonen alleen als data er is.
+
+function renderRijksmonument(rm) {
+  if (!rm || !rm.monument_nummer) return '';
+  const cat = rm.subcategorie || rm.hoofdcategorie || 'monument';
+  const urlLink = rm.url
+    ? ` <a href="${escape(rm.url)}" target="_blank" rel="noopener" class="onderwijs-info-link" title="Open Rijksmonumentenregister">register ↗</a>`
+    : '';
+  return `<div class="field">
+    <span class="label">Rijksmonument</span>
+    <strong>🏛️ Ja${urlLink}</strong>
+    <p class="chip chip-warn">verbouwregels</p>
+    <p class="refline">Nr. ${escape(String(rm.monument_nummer))} · ${escape(cat)}</p>
+    <p class="meaning">Verbouwing vereist monumenten-vergunning; verkoop kan subsidie-voordelen hebben maar restricties op ingrepen.</p>
+  </div>`;
+}
+
+function renderErfpacht(ef) {
+  if (!ef) return '';
+  const lvl = ef.niveau === 'hoog' ? 'warn' : ef.niveau === 'middel' ? 'neutral' : 'good';
+  return `<div class="field">
+    <span class="label">Erfpacht-prevalentie</span>
+    <strong>${escape(ef.niveau)}</strong>
+    <p class="chip chip-${lvl}">~${ef.pct_schatting}% van gemeente</p>
+    <p class="refline">Gemeente-niveau · pand-specifiek via BRK/notaris</p>
+    <p class="meaning">${escape(ef.toelichting)} Vraag altijd naar canon/afkoop bij aankoop.</p>
+  </div>`;
+}
+
+function renderGroen(g) {
+  if (!g || !g.straal_m) return '';
+  const pct = g.groen_pct || 0;
+  const level = pct >= 20 ? 'good' : pct >= 8 ? 'neutral' : 'warn';
+  const chip = pct >= 20 ? 'veel groen' : pct >= 8 ? 'gemengd' : 'weinig groen';
+  const ha = (g.groen_m2 / 10000).toFixed(2);
+  const meaning = pct >= 20
+    ? 'Ruim groen direct om het adres: parken, tuinen of bos binnen loopafstand.'
+    : pct >= 8
+    ? 'Enig groen in loopafstand — typisch stedelijk gemengd.'
+    : 'Weinig openbaar groen direct om het adres. Voor parken moet je wat verder lopen.';
+  return `<div class="field">
+    <span class="label">Groen in straat (${g.straal_m} m)</span>
+    <strong>${ha} ha</strong>
+    <p class="chip chip-${level}">${chip}</p>
+    <p class="refline">${pct}% van cirkel · ${g.aantal_elementen} stukken</p>
+    <p class="meaning">${meaning}</p>
+  </div>`;
 }
 
 // ---- Kaart (MapLibre GL) + externe viewer-links ----
