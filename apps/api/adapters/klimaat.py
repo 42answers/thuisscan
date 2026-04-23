@@ -169,28 +169,34 @@ async def fetch_klimaat(
 
     risicos: list[Risico] = []
 
-    # --- Paalrot (FeatureServer met %-panden velden) ---
+    # --- Funderingsrisico (paalrot + verschilzetting) ---
+    # NB: de ArcGIS-services `Klimaateffectatlas_Risico_paalrot` en
+    # `Klimaateffectatlas_Risico_verschilzetting` retourneren IDENTIEKE
+    # data — ze wijzen beide naar dezelfde funderingsrisico-tabel per
+    # CBS-buurt (zelfde OBJECTID, zelfde percentages, zelfde aantal_pan).
+    # We combineren ze daarom tot één rij "Funderingsrisico" en laten het
+    # bodemtype de INTERPRETATIE bepalen:
+    #   - Veen/slappe bodem → paalrot-narrative (houten palen in uitdrogend veen)
+    #   - Klei/zand-overgang → verschilzetting-narrative (ongelijk zakken)
+    #   - Rivierengebied / stedelijk → beide van toepassing
     p = res["paalrot"] if isinstance(res["paalrot"], dict) else {}
+    if not p:
+        p = res["verschilzet"] if isinstance(res["verschilzet"], dict) else {}
     if p:
+        # Bepaal het dominant-type op basis van bodem_code
+        if bodem_code in (3, 4, 10):        # echte veen-gebieden
+            fund_key, fund_label = "paalrot", "Paalrot-risico (houten palen in veen)"
+        elif bodem_code in (6, 7, 8, 9, 11):  # zand/klei-overgang
+            fund_key, fund_label = "verschilzetting", "Verschilzetting (zand/klei-zakkingen)"
+        else:
+            fund_key, fund_label = "funderingsrisico", "Funderingsrisico (paalrot + verschilzetting)"
         risicos.append(Risico(
-            key="paalrot",
-            label="Paalrot-risico",
-            relevant="paalrot" in relevant_keys,
+            key=fund_key,
+            label=fund_label,
+            relevant=("paalrot" in relevant_keys) or ("verschilzetting" in relevant_keys),
             pct=p.get("pct_sterk") or p.get("pct_mild"),
             aantal_panden=p.get("aantal_panden"),
             buurtnaam=p.get("buurtnaam"),
-        ))
-
-    # --- Verschilzetting (FeatureServer, zelfde schema als paalrot) ---
-    v = res["verschilzet"] if isinstance(res["verschilzet"], dict) else {}
-    if v:
-        risicos.append(Risico(
-            key="verschilzetting",
-            label="Verschilzetting (zand/klei-zakkingen)",
-            relevant="verschilzetting" in relevant_keys,
-            pct=v.get("pct_sterk") or v.get("pct_mild"),
-            aantal_panden=v.get("aantal_panden"),
-            buurtnaam=v.get("buurtnaam"),
         ))
 
     # --- Hittestress (ImageServer, klasse 1-5) ---

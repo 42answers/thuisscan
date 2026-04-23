@@ -2246,6 +2246,19 @@ def _risico_ref(r: "klimaat.Risico"):  # type: ignore[name-defined]
         return references.ref_paalrot(r.pct, None)
     if r.key == "verschilzetting":
         return references.ref_verschilzetting(r.pct)
+    if r.key == "funderingsrisico":
+        # Combi-rij: beide risico-types relevant. Paalrot-ref heeft de
+        # meest complete betekenis-tekst; we passen 'm hieronder aan zodat
+        # hij verwijst naar beide types fundering-uitdaging.
+        ref = references.ref_paalrot(r.pct, None)
+        if ref:
+            ref = ref._replace(
+                betekenis="Veel panden met funderingsrisico — hetzij houten "
+                "palen in uitdrogend veen (paalrot), hetzij ongelijkmatige "
+                "zakking op klei/zand-overgangen (verschilzetting). "
+                "Funderingsonderzoek sterk aanbevolen vóór aankoop."
+            ) if hasattr(ref, "_replace") else ref
+        return ref
     if r.key == "hittestress":
         return references.ref_hittestress(r.klasse)
     if r.key == "wateroverlast":
