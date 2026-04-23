@@ -153,8 +153,10 @@ function render(d) {
   // Kaart + externe viewers (#11)
   renderMap(d);
 
-  // Sociale betekenis-laag (#15): 3 menselijke vragen met verdict
-  renderVragen(d.sociale_vragen || []);
+  // Sociale vragen-blok (3 menselijke verdicten) is op verzoek verwijderd:
+  // de data was samengesteld uit dezelfde onderliggende metrics die ook
+  // in de secties zelf staan — voelde als dubbele samenvatting.
+  // renderVragen(d.sociale_vragen || []);
 
   // Buurtnaam tonen als beschikbaar — veel begrijpelijker dan de CBS-code.
   // De code blijft in kleine grijze tag voor volledigheid.
@@ -174,15 +176,24 @@ function render(d) {
   const w = d.woning || {};
   const labelClass = (w.energielabel && w.energielabel.value)
     ? `label-badge label-${w.energielabel.value.replace(/\+/g, 'p')}` : '';
-  // WOZ: prefereer adres-specifiek (Kadaster) boven buurt-gemiddelde (CBS).
-  // Als Kadaster-key ontbreekt, komt alleen het buurt-gemiddelde door.
+  // WOZ: prefereer pand-WOZ (uit WOZ-Waardeloket) boven buurt-gemiddelde (CBS).
+  // Pand-WOZ heeft ook trend_pct_per_jaar en historie — beide visualiseren.
   const wozBuurt = (d.wijk_economie && d.wijk_economie.woz) ? d.wijk_economie.woz : null;
   const wozAdres = w.woz_adres || null;
   const wozLabel = wozAdres ? 'WOZ-waarde (dit pand)' : 'WOZ-waarde (buurtgemiddelde)';
   const wozField = wozAdres || wozBuurt;
-  const wozExtra = wozAdres && wozAdres.peildatum
-    ? `Peildatum ${wozAdres.peildatum} · bron Kadaster WOZ`
-    : (wozBuurt && wozBuurt.trend_pct_per_jaar != null ? renderTrend(wozBuurt) : null);
+  // Onderschrift: bij pand-WOZ tonen we trend + historie (renderTrend kan beide).
+  // Bij buurt-WOZ alleen trend.
+  let wozExtra = null;
+  if (wozAdres) {
+    if (wozAdres.trend_pct_per_jaar != null) {
+      wozExtra = renderTrend(wozAdres);
+    } else if (wozAdres.peildatum) {
+      wozExtra = `Peildatum ${wozAdres.peildatum} · bron WOZ-Waardeloket`;
+    }
+  } else if (wozBuurt && wozBuurt.trend_pct_per_jaar != null) {
+    wozExtra = renderTrend(wozBuurt);
+  }
   const woningCells = [
     fieldHTML('Bouwjaar', w.bouwjaar, it => `${it.value}`),
     fieldHTML('Oppervlakte', w.oppervlakte,
@@ -192,16 +203,20 @@ function render(d) {
       it => it.value ? `<span class="${labelClass}">${it.value}</span>` : 'niet geregistreerd',
       w.energielabel && w.energielabel.datum ? `Registratie: ${w.energielabel.datum}` : null),
   ];
-  // Extra's: Rijksmonument / Erfpacht / Groen — alleen tonen als data er is.
-  // Deze 3 items zijn vaak niet-standaard maar waar ze spelen, zijn ze
-  // cruciaal (monumenten-verbouwregels, erfpachtkosten, groene ligging).
+  // Extra's: Rijksmonument / Groen in straat — lazy geladen via
+  // /woning-extras endpoint (RCE WFS + Overpass, 500-1500ms cold).
+  // Als data al binnen is (warm cache server-side doorgegeven), toon direct.
   const rijksHTML = renderRijksmonument(w.rijksmonument);
   if (rijksHTML) woningCells.push(rijksHTML);
-  const erfpachtHTML = renderErfpacht(w.erfpacht);
-  if (erfpachtHTML) woningCells.push(erfpachtHTML);
   const groenHTML = renderGroen(w.groen);
   if (groenHTML) woningCells.push(groenHTML);
   renderGrid('s-woning-grid', woningCells);
+
+  // Woning-extras lazy-loader: rijksmonument + groen komen na initial render.
+  // Zo wacht de hoofd-scan niet op de trage Overpass-groen-query.
+  if (w.extras_pending) {
+    loadWoningExtrasAsync(d.adres, woningCells);
+  }
 
   // Sectie 2: wijk-economie
   // Grid 2×2: inkomen · arbeid · opleiding · WOZ-buurt-met-trend
@@ -253,11 +268,24 @@ function render(d) {
     renderBereikbaarheid(d.bereikbaarheid);
   }
 
-  // Pand-specifieke WOZ via WOZ-loket viewer-API (lazy, 1/sec rate-limited).
-  // Upgrade de WOZ-cel in sectie 1 zodra de waarde binnen is (anders blijft
-  // het buurtgemiddelde staan als 'placeholder').
+  // Sectie 10: Verbouwingsmogelijkheden — lazy geladen via /verbouwing.
+  // 3 WFS-calls (BRK + RCE + BAG-geom) + Shapely, ~600-900ms cold.
+  // We hebben bag_PAND_id nodig (gebouw), niet verblijfsobject_id (unit).
+  // Die zit in de woning-sectie.
+  if (d.verbouwing && d.verbouwing.pending) {
+    renderVerbouwingSkeleton();
+    loadVerbouwingAsync(d.adres, (d.woning || {}).bag_pand_id || '');
+  } else {
+    renderVerbouwing(d.verbouwing);
+  }
+
+  // Pand-specifieke WOZ zit nu al in de eerste /scan response
+  // (woning.woz_adres uit WOZ-Waardeloket). Alleen als die om wat voor
+  // reden ook ontbreekt, doen we nog een retry via de losse /woz endpoint
+  // — bv. bij een nieuwbouw-pand waar de cache nog leeg was.
   const bagVbo = d.adres && d.adres.bag_verblijfsobject_id;
-  if (bagVbo) {
+  const heeftPandWoz = (d.woning || {}).woz_adres && (d.woning.woz_adres.value);
+  if (bagVbo && !heeftPandWoz) {
     loadWozAsync(bagVbo, d.wijk_economie && d.wijk_economie.woz);
   }
 
@@ -694,6 +722,277 @@ function renderKlimaatSkeleton() {
     </div>
   `).join('');
   grid.innerHTML = rows;
+}
+
+// ---- Sectie 10: Verbouwingsmogelijkheden (lazy-loaded) ----
+// Toont perceel-data + beschermd gezicht + onbebouwd achtererf + deeplinks
+// naar ruimtelijkeplannen.nl en omgevingsloket.nl. Fase 1 MVP zonder
+// beslisboom; Fase 2 voegt de concrete cards toe (uitbouw/dakkapel/
+// tuinhuis) op basis van Claude Haiku DSO-extractie. De optopping-card
+// is verwijderd omdat max-bouwhoogte via open data niet beschikbaar
+// is (zie orchestrator._build_mogelijkheden).
+
+function renderVerbouwingSkeleton() {
+  const section = document.getElementById('s-verbouwing');
+  const host = document.getElementById('s-verbouwing-content');
+  if (!section || !host) return;
+  host.innerHTML = `
+    <div class="verb-grid">
+      <div class="verb-tile skel-tile"><span class="skel-bar skel-label"></span><span class="skel-bar skel-sub"></span></div>
+      <div class="verb-tile skel-tile"><span class="skel-bar skel-label"></span><span class="skel-bar skel-sub"></span></div>
+      <div class="verb-tile skel-tile"><span class="skel-bar skel-label"></span><span class="skel-bar skel-sub"></span></div>
+    </div>
+  `;
+  section.hidden = false;
+}
+
+async function loadVerbouwingAsync(adres, bagPandId) {
+  if (!adres || !adres.wgs84 || !adres.rd) return;
+  // Gemeentenaam uit buurtnaam afleiden is onbetrouwbaar; we sturen alleen
+  // de CBS-gemeentecode + display_name (adres bevat "... {straat} {huisnr},
+  // {postcode} {plaats}") — de backend fallt terug op een Google-search
+  // deeplink als de gemeentenaam niet exact de woonplaats is.
+  const plaats = extractPlaatsFromDisplayName(adres.display_name || '');
+  const params = new URLSearchParams({
+    lat: String(adres.wgs84.lat),
+    lon: String(adres.wgs84.lon),
+    rd_x: String(adres.rd.x),
+    rd_y: String(adres.rd.y),
+    bag_pand_id: bagPandId || '',
+    gemeentecode: adres.gemeentecode || '',
+    gemeente_naam: plaats || '',
+    huisnummertoevoeging: adres.huisnummertoevoeging || '',
+    vbo_id: adres.bag_verblijfsobject_id || '',
+  });
+  try {
+    const r = await fetch(`${API_BASE}/verbouwing?${params.toString()}`);
+    if (!r.ok) throw new Error(`API ${r.status}`);
+    const v = await r.json();
+    renderVerbouwing(v);
+  } catch (e) {
+    const host = document.getElementById('s-verbouwing-content');
+    if (host) host.innerHTML = `<p class="muted small">Verbouwings-data tijdelijk niet beschikbaar.</p>`;
+  }
+}
+
+function renderVerbouwing(v) {
+  const section = document.getElementById('s-verbouwing');
+  const host = document.getElementById('s-verbouwing-content');
+  const prov = document.getElementById('p-verbouwing');
+  if (!section || !host) return;
+  if (!v || !v.available) { section.hidden = true; return; }
+  section.hidden = false;
+
+  // Blok 1 — Kavel-analyse. We tonen 'pand-footprint op dit perceel' — bij
+  // rijtjeshuizen is de BAG-pand-polygoon het hele rijtje, dus we clippen
+  // op perceel zodat de koper z'n eigen woning-footprint ziet, niet de buren.
+  const perceel = v.perceel || null;
+  const pandOpPerceelM2 = v.pand_op_perceel_m2 || null;
+  const pandTotaalM2 = v.pand_totaal_m2 || null;
+  const ach = v.achtererf || null;
+  const typeHint = v.woning_type_hint || 'onbekend';
+  const kavelBlok = (perceel || pandOpPerceelM2 || ach) ? `
+    <div class="verb-kavel">
+      <div class="verb-kavel-row">
+        ${perceel ? `<div class="verb-kavel-item"><span class="label">Perceel</span><strong>${perceel.oppervlakte_m2.toLocaleString('nl-NL')} m²</strong></div>` : ''}
+        ${pandOpPerceelM2 ? `<div class="verb-kavel-item"><span class="label">Woning-footprint</span><strong>${pandOpPerceelM2.toLocaleString('nl-NL')} m²</strong>${pandTotaalM2 && pandTotaalM2 !== pandOpPerceelM2 ? `<span class="muted small">BAG-pand totaal: ${pandTotaalM2.toLocaleString('nl-NL')} m²</span>` : ''}</div>` : ''}
+        ${ach ? `<div class="verb-kavel-item"><span class="label">Onbebouwd</span><strong>${ach.onbebouwd_m2.toLocaleString('nl-NL')} m²</strong><span class="muted small">${ach.onbebouwd_pct}% van perceel</span></div>` : ''}
+        ${ach && ach.achtererf_m2 > 0 ? `<div class="verb-kavel-item"><span class="label">Achtererf (indicatief)</span><strong>${ach.achtererf_m2.toLocaleString('nl-NL')} m²</strong></div>` : ''}
+      </div>
+    </div>
+  ` : '';
+
+  // Blok 2 — Bouwkundige status (chips)
+  const chips = [];
+  if (v.beschermd_gezicht) {
+    chips.push(`<span class="chip chip-warn" title="Rijksbeschermd stads- of dorpsgezicht (RCE). Alle verbouwingen aan de buitenkant vereisen omgevingsvergunning + welstandsadvies. Geen vergunningvrij bouwen toegestaan.">🏛️ Beschermd stadsgezicht: ${escape(v.beschermd_gezicht.naam)}</span>`);
+  } else {
+    chips.push(`<span class="chip chip-good" title="Dit pand ligt niet binnen een rijksbeschermd stads- of dorpsgezicht. Vergunningvrij bouwen is in principe mogelijk (mits niet rijksmonument of gemeentelijk monument).">🏛️ Géén beschermd gezicht</span>`);
+  }
+  // Monument-status: Wkpb geeft landelijk dekkend antwoord. Amsterdam-API
+  // (v.gem_monument) was de oude route; nu alleen nog fallback. We tonen
+  // één van deze: rijksmonument, gemeentelijk monument, of "geen monument".
+  const wkpbArr = v.wkpb || [];
+  const hasRijks = wkpbArr.some(b => b.grondslag_code === 'EWE' || b.grondslag_code === 'EWA')
+                   || (v.gem_monument && v.gem_monument.checked && v.gem_monument.is_monument
+                       && (v.gem_monument.status || '').toLowerCase().includes('rijks'));
+  const hasGemMon = wkpbArr.some(b => b.grondslag_code === 'GWA')
+                    || (v.gem_monument && v.gem_monument.checked && v.gem_monument.is_monument);
+  if (hasRijks) {
+    chips.push(`<span class="chip chip-warn" title="Dit pand is een rijksmonument. Voor wijzigingen aan de buitenkant heb je altijd een monumentenvergunning nodig.">🏛️ Rijksmonument</span>`);
+  } else if (hasGemMon) {
+    chips.push(`<span class="chip chip-warn" title="Dit pand staat geregistreerd in het gemeentelijk monumentenregister. Verbouwingen aan de buitenkant vereisen een omgevingsvergunning.">🏛️ Gemeentelijk monument</span>`);
+  } else {
+    chips.push(`<span class="chip chip-good" title="Landelijk gecontroleerd via Kadaster Wkpb-register — geen monument-aanwijzing.">🏛️ Géén monument</span>`);
+  }
+  // Appartement-chip: alleen als BAG-pand > 3× perceel — dat is het enige
+  // signaal waar we zeker van zijn (meerdere units in één gebouw over één
+  // perceel). De bredere 'rij vs grondgebonden'-heuristiek was onbetrouwbaar
+  // dus daar hangen we geen chip aan.
+  const isAppartement = (perceel && pandTotaalM2
+    && pandTotaalM2 / Math.max(1, perceel.oppervlakte_m2) > 3);
+  if (isAppartement) {
+    chips.push(`<span class="chip chip-warn" title="Appartementen en gestapelde woningen mogen niet zonder instemming van de VvE of mede-eigenaren verbouwen aan het casco of de buitenruimte.">🏢 Appartement — uitbouw vereist VvE-toestemming</span>`);
+  } else if (ach && ach.uitbouw_diepte_max_m != null) {
+    // Tooltip uitleg: hoe we deze ruimte berekenen.
+    const tooltip = `Afstand van de pand-achtergevel tot de achterste perceelgrens, minus 1 m burenrecht-marge. Berekend uit BAG-pand-polygoon en BRK-perceelgrens; voorzijde = kant van de adres-ingang. Bij hoekpanden kan dit afwijken.`;
+    if (ach.uitbouw_diepte_max_m >= 3) {
+      chips.push(`<span class="chip chip-good" title="${escape(tooltip)}">↔ ${ach.uitbouw_diepte_max_m} m ruimte voor uitbouw achter</span>`);
+    } else if (ach.uitbouw_diepte_max_m > 0) {
+      chips.push(`<span class="chip chip-neutral" title="${escape(tooltip)}">↔ ${ach.uitbouw_diepte_max_m} m achter (krap)</span>`);
+    } else {
+      chips.push(`<span class="chip chip-warn" title="${escape(tooltip)}">↔ geen achtererf voor uitbouw</span>`);
+    }
+  }
+  const chipsHTML = `<div class="verb-chips">${chips.join('')}</div>`;
+
+  // Blok 4 — Action-buttons (deeplinks)
+  const actions = [];
+  if (v.omgevingsloket_url) {
+    actions.push(`<a class="verb-btn" href="${escape(v.omgevingsloket_url)}" target="_blank" rel="noopener" title="Opent de Vergunningcheck. Doorloop ~10 vragen over het type verbouwing; je krijgt een definitief antwoord: vergunningvrij, meldingsplichtig of vergunning vereist.">🔎 Vergunningcheck op Omgevingsloket ↗</a>`);
+  }
+  if (v.ruimtelijkeplannen_url) {
+    actions.push(`<a class="verb-btn" href="${escape(v.ruimtelijkeplannen_url)}" target="_blank" rel="noopener" title="Opent 'Regels op de kaart' op het Omgevingsloket. Voer daar je adres in om de geldende regels per perceel te zien.">📋 Regels op de kaart ↗</a>`);
+  }
+  const actionsHTML = actions.length ? `<div class="verb-actions">${actions.join('')}</div>` : '';
+
+  // (De achtererf-disclaimer is verwijderd; criteria-checklist per card maakt
+  // voldoende expliciet welke aannames we maken.)
+  const infoRegel = '';
+
+  // Blok 3 — Beslisboom-cards: 4 concrete mogelijkheden
+  const mogelijkheden = Array.isArray(v.mogelijkheden) ? v.mogelijkheden : [];
+  const cardsHTML = mogelijkheden.length ? `
+    <div class="verb-cards-wrap">
+      <div class="verb-cards-title">Wat kun je concreet?</div>
+      <div class="verb-cards">
+        ${mogelijkheden.map(renderMogelijkheidCard).join('')}
+      </div>
+    </div>
+  ` : '';
+
+  host.innerHTML = `
+    ${kavelBlok}
+    ${chipsHTML}
+    ${infoRegel}
+    ${cardsHTML}
+    ${actionsHTML}
+  `;
+
+  if (prov) {
+    prov.textContent = 'Bron: Kadaster BRK-Publiek · RCE Cultuurhistorie · BAG · ruimtelijkeplannen.nl · omgevingsloket.nl';
+  }
+}
+
+// Plaats-naam uit een display_name halen: "Sixlaan 4, 2182AB Hillegom".
+// Laatste whitespace-token achter de postcode is de plaats.
+function extractPlaatsFromDisplayName(dn) {
+  if (!dn) return '';
+  // Match: optionele postcode gevolgd door plaatsnaam
+  const m = dn.match(/\b\d{4}\s?[A-Z]{2}\s+(.+?)$/);
+  return m ? m[1].trim() : '';
+}
+
+// ---- Beslisboom-card voor Verbouwingsmogelijkheden ----
+// Toont één concrete mogelijkheid met kleur-status en toelichting. De 'level'
+// komt uit de backend-beslisboom: good (groen/ja) / neutral (oranje/mits) /
+// warn (rood/vergunning-plicht) / unknown (grijs/data ontbreekt).
+function renderMogelijkheidCard(m) {
+  if (!m) return '';
+  const level = m.level || 'unknown';
+  const icon = m.icon || '·';
+  // Vergunningcheck-bevestiging: alleen tonen dat de activiteit op deze
+  // locatie geldig is (DSO heeft 'm herkend). Aantallen activiteiten/vragen
+  // weglaten — die aantallen zijn het totaal van alle varianten (dakkapel
+  // voor/zij/achter, nieuw/vervangen etc.) en de user hoeft via conditional
+  // branching maar 5-15 vragen te doorlopen, niet de volle 347. Dat
+  // getal-weergeven verwart meer dan dat het helpt.
+  const vc = m.vergunningcheck || null;
+  const vcBadge = (vc && vc.aantal_activiteiten > 0) ? `
+    <div class="verb-card-vc" title="De overheid herkent deze activiteit op dit adres in de officiële planregels. Voor een sluitend ja/nee-antwoord doorloop je een korte vragenlijst op Omgevingsloket.">
+      <span class="verb-card-vc-dot"></span>
+      ✓ Gecheckt bij Omgevingsloket
+    </div>
+  ` : '';
+  // Criteria-checklist (alleen voor uitbouw, waar Bbl 8 voorwaarden heeft).
+  // Toont per Bbl-criterium of het automatisch is gecheckt (✓), faalt (✗), of
+  // door user bevestigd moet worden (?). Dat vervangt de vage "wel checken
+  // op Omgevingsloket" door een concrete transparante lijst.
+  const criteria = Array.isArray(m.criteria) ? m.criteria : [];
+  const criteriaBlock = criteria.length ? `
+    <details class="verb-card-crits">
+      <summary>Bouwregels-checklist (${criteria.filter(c => c.status === 'pass').length}/${criteria.length} automatisch gecheckt)</summary>
+      <ul>
+        ${criteria.map(c => {
+          const icon = c.status === 'pass' ? '✓' : c.status === 'fail' ? '✗' : '?';
+          return `<li class="crit-${escape(c.status)}">
+            <span class="crit-icon">${icon}</span>
+            <span class="crit-label">${escape(c.label)}</span>
+            <span class="crit-detail">${escape(c.detail || '')}</span>
+          </li>`;
+        }).join('')}
+      </ul>
+    </details>
+  ` : '';
+  return `
+    <div class="verb-card verb-card-${escape(level)}" title="${escape(m.detail || '')}">
+      <div class="verb-card-head">
+        <span class="verb-card-icon">${escape(icon)}</span>
+        <strong class="verb-card-titel">${escape(m.titel || '')}</strong>
+      </div>
+      <div class="verb-card-samenvatting">${escape(m.samenvatting || '')}</div>
+      <div class="verb-card-detail">${escape(m.detail || '')}</div>
+      ${criteriaBlock}
+      ${vcBadge}
+    </div>
+  `;
+}
+
+function renderBebouwingsBar(perceelM2, pandM2) {
+  const pct = Math.max(1, Math.min(99, Math.round(100 * pandM2 / perceelM2)));
+  return `
+    <div class="verb-bar" aria-label="Bebouwingsgraad">
+      <div class="verb-bar-fill" style="width:${pct}%"></div>
+      <span class="verb-bar-label">${pct}% bebouwd</span>
+    </div>
+  `;
+}
+
+// Lazy loader voor woning-extras (RCE WFS rijksmonument + Overpass-groen).
+// Deze worden NA de hoofd-render opgehaald, zodat de pagina snel toont.
+// Bij succes: append de extras cells aan de woning-grid.
+async function loadWoningExtrasAsync(adres, baseCells) {
+  if (!adres || !adres.wgs84 || !adres.rd) return;
+  const params = new URLSearchParams({
+    lat: String(adres.wgs84.lat),
+    lon: String(adres.wgs84.lon),
+    rd_x: String(adres.rd.x),
+    rd_y: String(adres.rd.y),
+    gemeentecode: adres.gemeentecode || '',
+  });
+  try {
+    const r = await fetch(`${API_BASE}/woning-extras?${params.toString()}`);
+    if (!r.ok) return;
+    const ex = await r.json();
+    if (!ex || !ex.available) return;
+    // APPEND-ONLY: we voegen de extras (rijksmonument, groen) toe aan de
+    // bestaande grid zonder de andere cells opnieuw te bouwen. Belangrijk
+    // omdat loadWozAsync tegelijk de WOZ-cel upgrade van buurt → pand;
+    // als we hier renderGrid() aanroepen met oude baseCells, zouden we die
+    // pand-WOZ overschrijven met buurt-WOZ uit de oorspronkelijke render.
+    const grid = document.getElementById('s-woning-grid');
+    if (!grid) return;
+    const extras = [];
+    const rijksHTML = renderRijksmonument(ex.rijksmonument);
+    if (rijksHTML) extras.push(rijksHTML);
+    const groenHTML = renderGroen(ex.groen);
+    if (groenHTML) extras.push(groenHTML);
+    if (extras.length) {
+      grid.insertAdjacentHTML('beforeend', extras.join(''));
+    }
+  } catch (e) {
+    // Stil falen — de hoofd-4 cells zijn al getoond.
+  }
 }
 
 async function loadKlimaatAsync(adres) {

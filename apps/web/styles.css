@@ -1386,3 +1386,200 @@ main {
   /* Map iets korter zodat content sneller in beeld komt */
   .map-viewport { height: 240px; }
 }
+
+/* Sectie 10: Verbouwingsmogelijkheden ------------------------------------ */
+.verb-kavel { margin: 0.2rem 0 0.8rem; }
+.verb-kavel-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.8rem;
+  margin-bottom: 0.8rem;
+}
+.verb-kavel-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.7rem 0.85rem;
+  background: var(--panel, #f6f7f3);
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  min-height: 68px;
+}
+.verb-kavel-item .label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--muted, #6b6b6b);
+  line-height: 1.2;
+  margin-bottom: 0.1rem;
+}
+.verb-kavel-item strong {
+  display: block;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text, #1a1a1a);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+.verb-kavel-item .muted.small {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--muted, #8a8a8a);
+  margin-top: 0.15rem;
+}
+
+.verb-bar {
+  position: relative;
+  height: 22px;
+  background: #e9efe5;
+  border-radius: 11px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  margin: 0.3rem 0 0.5rem;
+}
+.verb-bar-fill {
+  position: absolute; top: 0; left: 0; bottom: 0;
+  background: linear-gradient(90deg, #2a6b5e, #3f8a76);
+  transition: width 0.3s ease;
+}
+.verb-bar-label {
+  position: absolute; top: 0; left: 0; right: 0;
+  line-height: 22px; font-size: 0.78rem; color: #1a1a1a; font-weight: 600;
+  text-align: center;
+  text-shadow: 0 0 4px rgba(255,255,255,0.85), 0 0 4px rgba(255,255,255,0.85);
+}
+
+.verb-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.4rem 0 0.8rem; }
+.verb-chips .chip { font-size: 0.8rem; padding: 0.3rem 0.6rem; cursor: help; }
+.verb-chips .chip-link { text-decoration: none; cursor: pointer; }
+.verb-chips .chip-link:hover { filter: brightness(0.96); }
+
+.verb-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.6rem; }
+.verb-btn {
+  display: inline-block;
+  padding: 0.55rem 0.9rem;
+  background: var(--panel, #f6f7f3);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  text-decoration: none;
+  color: var(--text, #1a1a1a);
+  font-size: 0.86rem;
+  transition: background 0.15s;
+}
+.verb-btn:hover { background: #eaeee5; }
+
+.verb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.6rem;
+}
+.verb-tile {
+  padding: 0.7rem;
+  background: var(--panel, #f6f7f3);
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  min-height: 60px;
+}
+.skel-tile { opacity: 0.6; }
+
+/* Beslisboom-cards: "Wat kun je concreet?" */
+.verb-cards-wrap { margin-top: 1rem; }
+.verb-cards-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text, #1a1a1a);
+  margin-bottom: 0.6rem;
+}
+.verb-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.7rem;
+}
+.verb-card {
+  padding: 0.9rem 1rem;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel, #f6f7f3);
+  border-left-width: 4px;
+}
+.verb-card-good    { border-left-color: #1d7a56; background: #f0faf4; }
+.verb-card-neutral { border-left-color: #a07a2a; background: #fdf8eb; }
+.verb-card-warn    { border-left-color: #a14a3a; background: #fdf3f0; }
+.verb-card-unknown { border-left-color: #888;    background: #f2f2ef; }
+
+.verb-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.3rem;
+}
+.verb-card-icon { font-size: 1rem; }
+.verb-card-titel { font-size: 0.95rem; color: var(--text, #1a1a1a); }
+.verb-card-samenvatting {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text, #1a1a1a);
+  margin-bottom: 0.3rem;
+  line-height: 1.3;
+}
+.verb-card-detail {
+  font-size: 0.78rem;
+  color: var(--muted, #5f5f5f);
+  line-height: 1.45;
+}
+.verb-card-vc {
+  margin-top: 0.5rem;
+  padding-top: 0.45rem;
+  border-top: 1px dashed var(--line);
+  font-size: 0.72rem;
+  color: var(--muted, #6b6b6b);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: help;
+}
+
+/* Criteria-checklist (Bbl-voorwaarden voor uitbouw) — transparante details */
+.verb-card-crits {
+  margin-top: 0.55rem;
+  padding-top: 0.4rem;
+  border-top: 1px dashed var(--line);
+  font-size: 0.78rem;
+}
+.verb-card-crits > summary {
+  cursor: pointer;
+  color: var(--muted, #6b6b6b);
+  padding: 0.2rem 0;
+  list-style: revert;
+  user-select: none;
+}
+.verb-card-crits > summary:hover { color: var(--text, #1a1a1a); }
+.verb-card-crits > ul {
+  list-style: none;
+  padding: 0.4rem 0 0;
+  margin: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+.verb-card-crits > ul > li {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 0.15rem 0.5rem;
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+.verb-card-crits .crit-icon {
+  grid-row: 1 / 3;
+  font-weight: 700;
+  text-align: center;
+}
+.verb-card-crits .crit-label { color: var(--text, #1a1a1a); font-weight: 500; }
+.verb-card-crits .crit-detail { color: var(--muted, #7a7a7a); font-size: 0.72rem; }
+.verb-card-crits li.crit-pass .crit-icon { color: #1d7a56; }
+.verb-card-crits li.crit-fail .crit-icon { color: #a14a3a; }
+.verb-card-crits li.crit-unknown .crit-icon { color: #a07a2a; }
+.verb-card-vc-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #2a6b5e;
+  display: inline-block;
+}
