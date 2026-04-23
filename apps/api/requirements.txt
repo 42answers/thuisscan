@@ -9,3 +9,6 @@ shapely==2.0.6
 # Anthropic SDK voor BP-tekst extractie (Haiku) in bp_extractor.py.
 # Valideert naar gestructureerd JSON; fallback naar None als API-key ontbreekt.
 anthropic>=0.50,<1.0
+# Pillow voor static_maps.py — OSM-tile stitching + Kadaster WMS marker
+# overlay bij /rapport endpoint. ~10 MB extra in image.
+Pillow>=10.0,<12.0

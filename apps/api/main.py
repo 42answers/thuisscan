@@ -19,11 +19,12 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from adapters import bag, pdok_locatie
+from adapters import bag, pdok_locatie, static_maps
 import orchestrator
+import rapport_template
 
 app = FastAPI(
     title="Thuisscan API",
@@ -131,6 +132,70 @@ async def scan_endpoint(q: str = Query(..., min_length=3, description="Adres")) 
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Scan faalde: {e}") from e
     return orchestrator.result_as_dict(result)
+
+
+@app.get("/rapport", response_class=HTMLResponse)
+async def rapport_endpoint(
+    q: str = Query(..., min_length=3, description="Adres-zoekterm"),
+) -> HTMLResponse:
+    """Print-ready HTML-rapport (8-13 A4-pagina's) voor één adres.
+
+    Haalt alle data parallel op en rendert via rapport_template.render_html.
+    Gebruiker kan in browser via Cmd+P / Ctrl+P naar PDF exporteren.
+
+    Query: ?q=Paramaribostraat+72-1+Amsterdam
+    """
+    import asyncio as _aio
+
+    try:
+        scan_result = await orchestrator.scan(q)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Scan faalde: {e}") from e
+
+    scan_dict = orchestrator.result_as_dict(scan_result)
+    a = scan_dict.get("adres", {})
+    lat = a.get("wgs84", {}).get("lat")
+    lon = a.get("wgs84", {}).get("lon")
+    rd_x = a.get("rd", {}).get("x")
+    rd_y = a.get("rd", {}).get("y")
+    bag_pand_id = (scan_dict.get("woning") or {}).get("bag_pand_id", "")
+    bag_vbo_id = a.get("bag_verblijfsobject_id") or ""
+    gemeentecode = a.get("gemeentecode") or ""
+    buurtcode = a.get("buurtcode") or ""
+
+    # Parallel: alle lazy endpoints + 2 kaart-images
+    woz_t = orchestrator.fetch_woz_pand(bag_vbo_id) if bag_vbo_id else _aio.sleep(0, {"available": False})
+    voorz_t = orchestrator.fetch_voorzieningen(lat=lat, lon=lon, buurtcode=buurtcode, gemeentecode=gemeentecode)
+    klim_t = orchestrator.fetch_klimaat_section(lat, lon, rd_x, rd_y) if (lat and rd_x) else _aio.sleep(0, {"available": False})
+    ber_t = orchestrator.fetch_bereikbaarheid_section(lat, lon) if lat else _aio.sleep(0, {"available": False})
+    extras_t = orchestrator.fetch_woning_extras_section(lat, lon, rd_x, rd_y, gemeentecode or None) if lat else _aio.sleep(0, {"available": False})
+    verb_t = orchestrator.fetch_verbouwing_section(
+        lat=lat, lon=lon, rd_x=rd_x, rd_y=rd_y,
+        bag_pand_id=bag_pand_id, gemeentecode=gemeentecode,
+        gemeente_naam=None, eigen_vbo_id=bag_vbo_id,
+    ) if lat else _aio.sleep(0, {"available": False})
+    streetmap_t = static_maps.fetch_streetmap_png(lat, lon) if lat else _aio.sleep(0, None)
+    perceel_t = static_maps.fetch_perceel_png(rd_x, rd_y) if rd_x else _aio.sleep(0, None)
+
+    woz, voorz, klim, ber, extras, verb, streetmap_png, perceel_png = await _aio.gather(
+        woz_t, voorz_t, klim_t, ber_t, extras_t, verb_t, streetmap_t, perceel_t,
+        return_exceptions=False,
+    )
+
+    html_str = rapport_template.render_html({
+        "scan": scan_dict,
+        "woz": woz,
+        "voorz": voorz,
+        "klim": klim,
+        "ber": ber,
+        "extras": extras,
+        "verb": verb,
+        "streetmap_png": streetmap_png,
+        "perceel_png": perceel_png,
+    })
+    return HTMLResponse(content=html_str, status_code=200)
 
 
 @app.get("/woz")

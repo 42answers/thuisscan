@@ -150,6 +150,11 @@ function fieldEmpty(label) {
 function render(d) {
   setText('r-address', d.adres.display_name || '—');
 
+  // Print-knop (volledig HTML-rapport in nieuwe tab; user gebruikt Cmd+P
+  // voor PDF-export). Dynamisch toegevoegd — bewust niet via index.html
+  // zodat we geen knop tonen vóór een geslaagde scan.
+  renderPrintKnop(d.adres.display_name);
+
   // Kaart + externe viewers (#11)
   renderMap(d);
 
@@ -365,6 +370,29 @@ function render(d) {
   setText('p-bereikbaarheid', findProv(provs, 'bereikbaarheid'));
 
   $result.hidden = false;
+}
+
+// PDF-export knop — opent /rapport endpoint in nieuwe tab. Gebruiker gebruikt
+// Cmd+P (macOS) of Ctrl+P (Windows) om naar PDF te printen.
+function renderPrintKnop(adres) {
+  if (!adres) return;
+  let host = document.getElementById('rapport-knop-host');
+  if (!host) {
+    // Plaats vlak boven r-address (titel-blok)
+    const titleBlock = document.querySelector('.r-title-block') || document.getElementById('r-address');
+    if (!titleBlock) return;
+    host = document.createElement('div');
+    host.id = 'rapport-knop-host';
+    host.className = 'rapport-knop-host';
+    titleBlock.parentNode.insertBefore(host, titleBlock);
+  }
+  const url = `${API_BASE}/rapport?q=${encodeURIComponent(adres)}`;
+  host.innerHTML = `
+    <a href="${url}" target="_blank" rel="noopener" class="rapport-knop"
+       title="Open volledig rapport in nieuwe tab — gebruik Cmd+P / Ctrl+P om naar PDF te printen">
+      📄 Volledig rapport openen <span class="knop-hint">(print naar PDF)</span>
+    </a>
+  `;
 }
 
 function renderGrid(gridId, itemsHTML) {

@@ -1583,3 +1583,35 @@ main {
   background: #2a6b5e;
   display: inline-block;
 }
+
+/* Rapport-export knop — boven het titel-blok zodra een scan klaar is */
+.rapport-knop-host {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0.5rem 0 1rem;
+}
+.rapport-knop {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1rem;
+  background: #1f4536;
+  color: #fff;
+  font-size: 0.92rem;
+  font-weight: 500;
+  border-radius: 4px;
+  text-decoration: none;
+  transition: background 0.15s;
+  letter-spacing: 0.01em;
+  border: 1px solid #1f4536;
+}
+.rapport-knop:hover {
+  background: #163428;
+  border-color: #163428;
+}
+.rapport-knop .knop-hint {
+  font-size: 0.78rem;
+  opacity: 0.8;
+  font-weight: 400;
+  margin-left: 0.2rem;
+}
