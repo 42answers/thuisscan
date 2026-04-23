@@ -25,14 +25,26 @@ Tradeoffs:
 """
 from __future__ import annotations
 
+import asyncio
 import math
+import sys
 from dataclasses import dataclass
 from typing import Optional
 
 import httpx
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
-TIMEOUT_S = 12.0
+# Fallback-endpoints: bij rate-limit / timeout van hoofdserver proberen we
+# deze. Zelfde Overpass-QL specificatie, andere servers (meer capaciteit
+# wereldwijd). Volgorde = prio.
+OVERPASS_FALLBACKS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+]
+TIMEOUT_S = 12.0  # per endpoint; totaal max 3×12s = 36s worst case. Eerder was
+# 25s per endpoint = 75s totaal bij 3x fail — te traag. Cold queries in NL
+# duren typisch 5-10s; 12s is net boven de p99.
 
 # POI-definities: wat we zoeken in OSM + hoe we het in de UI tonen.
 # Elk tuple:
@@ -132,6 +144,52 @@ def _build_query(lat: float, lon: float) -> str:
     return f"[out:json][timeout:10];\n(\n{body}\n);\nout tags center;"
 
 
+async def _overpass_post_with_retry(query: str) -> Optional[dict]:
+    """Robuuste Overpass-POST met retry + endpoint-fallback.
+
+    Strategie:
+      1. Probeer primary endpoint. 200 → klaar.
+      2. Bij 406/429/503 (rate-limit, overload) → backoff + volgende endpoint.
+      3. Bij timeout → volgende endpoint.
+      4. Als ALLE endpoints falen → None (caller valt terug op CBS).
+
+    Logt status per attempt naar stderr zodat we in Fly-logs zien wat er
+    gebeurt; voorheen faalde de call stil.
+    """
+    headers = {
+        "User-Agent": "buurtscan/1.0 (nl-NL) contact:vandeweijer@gmail.com",
+        "Accept": "application/json",
+    }
+    last_error = None
+    async with httpx.AsyncClient(timeout=TIMEOUT_S, headers=headers) as client:
+        for attempt, url in enumerate(OVERPASS_FALLBACKS):
+            try:
+                resp = await client.post(url, data={"data": query})
+            except (httpx.TimeoutException, httpx.ConnectError, httpx.RemoteProtocolError) as e:
+                last_error = f"{type(e).__name__}:{e}"
+                print(f"[overpass] attempt {attempt+1} ({url}): network {last_error}", file=sys.stderr)
+                continue
+            if resp.status_code == 200:
+                try:
+                    return resp.json()
+                except Exception as e:
+                    last_error = f"parse:{e}"
+                    print(f"[overpass] attempt {attempt+1}: 200 but parse fail {e}", file=sys.stderr)
+                    continue
+            # 406/429 = rate-limit; 503 = overload; 502/504 = gateway
+            if resp.status_code in (406, 429, 503, 502, 504):
+                last_error = f"status {resp.status_code}"
+                print(f"[overpass] attempt {attempt+1} ({url}): {resp.status_code} (rate-limit/overload)", file=sys.stderr)
+                # Korte backoff voordat we naar het volgende endpoint gaan
+                await asyncio.sleep(0.5 * (attempt + 1))
+                continue
+            # Andere fouten: niet retrying, maar wel loggen
+            last_error = f"status {resp.status_code}: {resp.text[:100]}"
+            print(f"[overpass] attempt {attempt+1} ({url}): {last_error}", file=sys.stderr)
+    print(f"[overpass] ALL endpoints failed: {last_error}", file=sys.stderr)
+    return None
+
+
 async def fetch_poi_nearby(lat: float, lon: float) -> list[POI]:
     """Haal alle POI-types op in een bounding-box rond (lat, lon).
 
@@ -140,16 +198,8 @@ async def fetch_poi_nearby(lat: float, lon: float) -> list[POI]:
     per type (anders zie je bv. 20 cafes).
     """
     query = _build_query(lat, lon)
-    try:
-        async with httpx.AsyncClient(timeout=TIMEOUT_S) as client:
-            resp = await client.post(
-                OVERPASS_URL,
-                data={"data": query},
-                headers={"User-Agent": "buurtscan/1.0 (nl-NL) contact:vandeweijer@gmail.com"},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-    except Exception:
+    data = await _overpass_post_with_retry(query)
+    if data is None:
         return []
 
     # Map: (filter → spec) voor matching op terug-gekomen tags.

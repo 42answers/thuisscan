@@ -177,6 +177,52 @@ async def bereikbaarheid_endpoint(
         raise HTTPException(status_code=502, detail=f"Bereikbaarheid faalde: {e}") from e
 
 
+@app.get("/verbouwing")
+async def verbouwing_endpoint(
+    lat: float = Query(..., description="WGS84 latitude"),
+    lon: float = Query(..., description="WGS84 longitude"),
+    rd_x: float = Query(..., description="RD X-coordinaat"),
+    rd_y: float = Query(..., description="RD Y-coordinaat"),
+    bag_pand_id: str = Query("", description="BAG pand-ID voor footprint"),
+    gemeentecode: str = Query("", description="CBS gemeentecode (zonder GM)"),
+    gemeente_naam: str = Query("", description="Gemeentenaam voor deeplink"),
+    huisnummertoevoeging: str = Query("", description="Toevoeging (bv '1' voor 1e verdieping)"),
+    vbo_id: str = Query("", description="BAG verblijfsobject-ID voor stapeling-analyse"),
+) -> dict:
+    """Verbouwingsmogelijkheden (Sectie 10)."""
+    try:
+        return await orchestrator.fetch_verbouwing_section(
+            lat, lon, rd_x, rd_y,
+            bag_pand_id or None,
+            gemeentecode=gemeentecode or None,
+            gemeente_naam=gemeente_naam or None,
+            huisnummertoevoeging=huisnummertoevoeging or None,
+            eigen_vbo_id=vbo_id or None,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Verbouwing faalde: {e}") from e
+
+
+@app.get("/woning-extras")
+async def woning_extras_endpoint(
+    lat: float = Query(..., description="WGS84 latitude"),
+    lon: float = Query(..., description="WGS84 longitude"),
+    rd_x: float = Query(..., description="RD X-coordinaat"),
+    rd_y: float = Query(..., description="RD Y-coordinaat"),
+    gemeentecode: str = Query("", description="CBS-gemeentecode"),
+) -> dict:
+    """Woning-extras (Rijksmonument + Groen in straat, 500-1500ms cold).
+
+    Aparte endpoint omdat RCE WFS + Overpass te langzaam zijn voor main /scan.
+    """
+    try:
+        return await orchestrator.fetch_woning_extras_section(
+            lat, lon, rd_x, rd_y, gemeentecode or None
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Woning-extras faalde: {e}") from e
+
+
 @app.get("/voorzieningen")
 async def voorzieningen_endpoint(
     lat: float = Query(..., description="WGS84 latitude van het adres"),
