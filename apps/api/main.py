@@ -467,6 +467,27 @@ if WEB_DIR.exists():
             headers={"Cache-Control": _HTML_CACHE},
         )
 
+    @app.get("/over")
+    @app.get("/over-buurtscan")
+    @app.get("/about")
+    async def serve_over() -> FileResponse:
+        """About-pagina — uitleg over Buurtscan, bronnen, doelgroep."""
+        return FileResponse(
+            WEB_DIR / "over.html",
+            headers={"Cache-Control": _HTML_CACHE},
+        )
+
+    @app.get("/og-image.png")
+    async def serve_og_image() -> FileResponse:
+        """Open Graph share-image (1200×630). Gegenereerd door scripts/maak_og_image.py."""
+        target = WEB_DIR / "og-image.png"
+        if not target.exists():
+            raise HTTPException(status_code=404, detail="og-image.png niet aanwezig")
+        return FileResponse(
+            target, media_type="image/png",
+            headers={"Cache-Control": _STATIC_CACHE},
+        )
+
     @app.get("/styles.css")
     async def serve_css() -> FileResponse:
         return FileResponse(
@@ -520,6 +541,12 @@ if WEB_DIR.exists():
             f'    <lastmod>{today}</lastmod>\n'
             '    <changefreq>weekly</changefreq>\n'
             '    <priority>1.0</priority>\n'
+            '  </url>\n'
+            '  <url>\n'
+            '    <loc>https://buurtscan.com/over</loc>\n'
+            f'    <lastmod>{today}</lastmod>\n'
+            '    <changefreq>monthly</changefreq>\n'
+            '    <priority>0.7</priority>\n'
             '  </url>\n'
             '</urlset>\n'
         )

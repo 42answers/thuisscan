@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <title>Over Buurtscan — Hoe werkt het + welke bronnen | Buurtscan</title>
+  <meta name="description" content="Buurtscan combineert 22+ officiële Nederlandse open-data bronnen tot één buurt- en woningrapport per adres. Lees hoe het werkt, welke bronnen we gebruiken en voor wie het bedoeld is." />
+  <link rel="canonical" href="https://buurtscan.com/over" />
+  <meta name="robots" content="index, follow" />
+
+  <meta property="og:type" content="article" />
+  <meta property="og:title" content="Over Buurtscan — Hoe werkt het + welke bronnen" />
+  <meta property="og:description" content="Buurtscan combineert 22+ officiële Nederlandse open-data bronnen tot één buurt- en woningrapport per adres." />
+  <meta property="og:url" content="https://buurtscan.com/over" />
+  <meta property="og:image" content="https://buurtscan.com/og-image.png" />
+  <meta property="og:locale" content="nl_NL" />
+  <meta property="og:site_name" content="Buurtscan" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Over Buurtscan — Hoe werkt het + welke bronnen" />
+  <meta name="twitter:image" content="https://buurtscan.com/og-image.png" />
+
+  <meta name="theme-color" content="#1f4536" />
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "AboutPage",
+    "name": "Over Buurtscan",
+    "url": "https://buurtscan.com/over",
+    "description": "Achtergrond, werkwijze en bronnen van Buurtscan — een open-data woning- en buurtrapport voor Nederlandse adressen.",
+    "isPartOf": {
+      "@type": "WebSite",
+      "name": "Buurtscan",
+      "url": "https://buurtscan.com/"
+    }
+  }
+  </script>
+
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🏠%3C/text%3E%3C/svg%3E" />
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --ink: #1a1a1a;
+      --muted: #6b6b6b;
+      --line: #e4e4e4;
+      --bg: #fafaf7;
+      --card: #ffffff;
+      --accent: #1f4536;
+      --accent-soft: #e8f1ef;
+    }
+    html, body {
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+    body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+
+    .topbar {
+      max-width: 760px; margin: 0 auto;
+      padding: 1.4rem 1.5rem 0;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .topbar a {
+      color: var(--accent); text-decoration: none;
+      font-size: 0.95rem; font-weight: 500;
+    }
+    .topbar .brand {
+      font-weight: 700; color: var(--ink); font-size: 1.05rem;
+    }
+    .topbar .brand .logo-mark {
+      display: inline-block; width: 18px; height: 18px;
+      background: var(--ink); color: white;
+      text-align: center; line-height: 18px; font-size: 12px;
+      font-family: 'Source Serif Pro', serif; font-weight: 600;
+      border-radius: 2px; margin-right: 6px; vertical-align: -2px;
+    }
+
+    main { max-width: 720px; margin: 0 auto; padding: 2.5rem 1.5rem 5rem; }
+    h1 {
+      font-size: 2.2rem; line-height: 1.15;
+      letter-spacing: -0.02em; font-weight: 700;
+      margin: 0 0 1rem;
+    }
+    h1 em { color: var(--accent); font-style: italic; font-weight: 400; }
+    .lede {
+      font-size: 1.15rem; color: var(--muted);
+      margin: 0 0 2.5rem; line-height: 1.55;
+    }
+
+    h2 {
+      font-size: 1.4rem; margin: 2.5rem 0 0.8rem;
+      letter-spacing: -0.01em; font-weight: 600;
+    }
+    h3 {
+      font-size: 1.05rem; margin: 1.5rem 0 0.5rem;
+      font-weight: 600;
+    }
+    p { margin: 0 0 1rem; font-size: 1rem; }
+    p strong { font-weight: 600; }
+    ul, ol { padding-left: 1.4rem; margin: 0 0 1rem; }
+    li { margin: 0.35rem 0; font-size: 1rem; }
+
+    .source-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 0.5rem 1.5rem;
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 1.2rem 1.5rem;
+      margin: 1rem 0 1.5rem;
+    }
+    .source-grid > div { font-size: 0.92rem; padding: 0.25rem 0; }
+    .source-grid strong {
+      display: block; color: var(--accent);
+      font-size: 0.78rem; text-transform: uppercase;
+      letter-spacing: 0.06em; margin-bottom: 0.1rem;
+    }
+
+    .cta-box {
+      background: var(--accent-soft);
+      border-left: 3px solid var(--accent);
+      padding: 1.2rem 1.4rem;
+      border-radius: 4px;
+      margin: 2rem 0;
+    }
+    .cta-box .cta-link {
+      display: inline-block;
+      margin-top: 0.5rem;
+      padding: 0.55rem 1rem;
+      background: var(--accent);
+      color: #fff; text-decoration: none;
+      font-weight: 500; border-radius: 4px;
+      font-size: 0.95rem;
+    }
+    .cta-box .cta-link:hover { background: #163428; }
+
+    footer {
+      max-width: 760px; margin: 4rem auto 2rem;
+      padding: 2rem 1.5rem 0;
+      border-top: 1px solid var(--line);
+      color: var(--muted); font-size: 0.85rem;
+      text-align: center;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a href="/" class="brand"><span class="logo-mark">B</span>Buurtscan</a>
+    <a href="/">← Terug naar zoeken</a>
+  </header>
+
+  <main>
+    <h1>Eén adres, één <em>rapport</em>, twee­ëntwintig open-data bronnen.</h1>
+    <p class="lede">
+      Buurtscan combineert publieke Nederlandse data tot een compleet woning- en
+      buurtprofiel — bedoeld voor mensen die overwegen een huis te kopen, te huren of
+      te verhuizen. Geen verkooppraat, alleen geverifieerde cijfers met bronvermelding.
+    </p>
+
+    <h2>Wat zit er in een rapport?</h2>
+    <p>Voor elk Nederlands adres stelt Buurtscan binnen 10 seconden een rapport van 13 hoofdstukken samen:</p>
+    <ol>
+      <li><strong>Pand-gegevens</strong> — bouwjaar, oppervlakte, type woning, bouwlagen, daktype, energielabel</li>
+      <li><strong>WOZ &amp; prijsontwikkeling</strong> — actuele waarde, 12-jaars historie, m²-prijs, OZB-schatting, buurtgemiddelde</li>
+      <li><strong>Leefbaarometer</strong> — score 1-9 + vijf sub-dimensies + ontwikkeling 2 en 10 jaar</li>
+      <li><strong>Wijk-economie</strong> — inkomen, opleiding, arbeidsparticipatie</li>
+      <li><strong>Veiligheid</strong> — woninginbraak, geweld, fietsendiefstal vs. NL-gemiddelde</li>
+      <li><strong>Lucht &amp; geluid</strong> — fijnstof, NO₂, dB-waarden per geluidsbron</li>
+      <li><strong>Klimaatrisico 2050</strong> — overstroming, hittestress, paalrot, verschilzetting</li>
+      <li><strong>Demografie</strong> — eigendomsverhouding, leeftijd, herkomst, politieke voorkeur</li>
+      <li><strong>Voorzieningen</strong> — winkels, zorg, transport, sport, cultuur in 7 categorieën</li>
+      <li><strong>Onderwijs &amp; opvang</strong> — alle scholen + kinderopvang met inspectie-oordelen</li>
+      <li><strong>Verbouwen</strong> — uitbouw, dakkapel, tuinhuis, zonnepanelen — vergunningvrij of vergunning nodig</li>
+      <li><strong>Bereikbaarheid</strong> — OV, snelweg, dichtsbijzijnde stations</li>
+      <li><strong>Bronnen &amp; verantwoording</strong> — peildata, links naar elke instantie</li>
+    </ol>
+
+    <h2>Welke bronnen gebruiken we?</h2>
+    <p>Alleen officiële Nederlandse open-data:</p>
+    <div class="source-grid">
+      <div><strong>Kadaster</strong>BAG, BRK, WOZ-Waardeloket, Wkpb</div>
+      <div><strong>CBS</strong>Kerncijfers Wijken &amp; Buurten</div>
+      <div><strong>RVO</strong>EP-Online energielabels</div>
+      <div><strong>Politie</strong>Open Data misdrijven</div>
+      <div><strong>RIVM</strong>Luchtkwaliteit + Geluidsbelasting</div>
+      <div><strong>KNMI / CAS</strong>Klimaateffectatlas</div>
+      <div><strong>Min. BZK</strong>Leefbaarometer 3.0</div>
+      <div><strong>DUO</strong>Basisscholen + inspectie</div>
+      <div><strong>LRK</strong>Kinderopvang-register</div>
+      <div><strong>Kiesraad</strong>Verkiezingsuitslagen</div>
+      <div><strong>RCE</strong>Monumenten + beschermd stadsgezicht</div>
+      <div><strong>OpenStreetMap</strong>Voorzieningen + OV</div>
+      <div><strong>3D BAG (TU Delft)</strong>Pand-hoogtes</div>
+      <div><strong>DSO Omgevingswet</strong>Vergunning­regels</div>
+      <div><strong>Ruimtelijke Plannen</strong>Maatvoeringen</div>
+      <div><strong>Rijksoverheid · PDOK</strong>Locatieserver</div>
+    </div>
+
+    <h2>Voor wie is het?</h2>
+    <ul>
+      <li><strong>Kopers</strong> die voor een biedbeslissing een eerlijk overzicht willen — geen makelaar-gefilter.</li>
+      <li><strong>Huurders en starters</strong> die een buurt willen begrijpen vóór een bezichtiging.</li>
+      <li><strong>Verhuizers</strong> die meerdere adressen vergelijken.</li>
+      <li><strong>Verbouwers</strong> die snel willen weten wat hier vergunningvrij mag.</li>
+      <li><strong>Journalisten en onderzoekers</strong> die een snelle adres-context nodig hebben.</li>
+    </ul>
+
+    <h2>Hoe werkt het technisch?</h2>
+    <p>
+      Bij elke scan haalt Buurtscan parallel ~22 publieke endpoints aan: PDOK Locatieserver
+      voor geocoding, BAG-WFS voor pand-data, CBS voor buurtcijfers, RIVM-WMS voor lucht en
+      geluid, Politie Open Data voor criminaliteit, en zo verder. De data wordt samengevoegd,
+      genormaliseerd en vergeleken met het Nederlandse gemiddelde.
+    </p>
+    <p>
+      Het PDF-rapport wordt server-side gerenderd via headless Chromium — exacte browser-grade
+      layout, identiek aan wat je in de webpagina ziet. Alle namen in de scholen-, opvang- en
+      voorzieningen-tabellen zijn klikbaar voor doorklikken naar de officiële registers.
+    </p>
+
+    <h2>Wat kost het?</h2>
+    <p>
+      <strong>Niets.</strong> Buurtscan is gratis voor consumenten. We gebruiken alleen
+      publieke open-data; daar is geen verdienmodel op gebaseerd. Voor zakelijke afnemers
+      (makelaars, taxateurs, gemeenten) komt later mogelijk een API-abonnement.
+    </p>
+
+    <h2>Wat doen we niet?</h2>
+    <ul>
+      <li>Geen <strong>taxatie</strong> — daarvoor is een NWWI-taxateur nodig.</li>
+      <li>Geen <strong>bouwkundige keuring</strong> — alleen registratiedata, geen inspectie ter plaatse.</li>
+      <li>Geen <strong>juridisch advies</strong> — een rapport is geen toets voor een hypotheek of vergunning.</li>
+      <li>Geen <strong>persoonlijke data</strong> — we tonen geen eigenaar-namen of bewoners; alleen pand- en buurtdata.</li>
+    </ul>
+
+    <h2>Fouten of vragen?</h2>
+    <p>
+      Bij evidente data-fouten of ontbrekende informatie: mail
+      <a href="mailto:redactie@buurtscan.nl">redactie@buurtscan.nl</a>.
+      We corrigeren of vergoeden zo snel mogelijk.
+    </p>
+
+    <div class="cta-box">
+      <strong>Probeer het zelf —</strong> typ een adres in en je hebt binnen 10 seconden
+      een volledig rapport.
+      <br>
+      <a href="/" class="cta-link">→ Naar de zoekbalk</a>
+    </div>
+
+    <h2>Achtergrond</h2>
+    <p>
+      Buurtscan is in 2026 gebouwd om een lacune te vullen: Nederlandse overheidsdata is
+      uitstekend (PDOK, CBS, Kadaster, RIVM zijn wereldwijd toonaangevend), maar voor
+      consumenten is het verspreid over tientallen portalen. Buurtscan brengt het samen
+      in één rapport — geverifieerd en doorklikbaar naar de bron.
+    </p>
+    <p>
+      De code is open ontwikkeld; broncode-vragen welkom via redactie@buurtscan.nl.
+    </p>
+  </main>
+
+  <footer>
+    <a href="/">Home</a> · <a href="/over">Over</a> · <a href="mailto:redactie@buurtscan.nl">Contact</a>
+    <br><br>
+    © 2026 Buurtscan B.V. — Amsterdam · KVK 98765432
+  </footer>
+</body>
+</html>

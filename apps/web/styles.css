@@ -1697,3 +1697,22 @@ button.rapport-knop:disabled {
 @keyframes rapport-spin {
   to { transform: rotate(360deg); }
 }
+
+/* Site-footer — onder hele scan-layout, link naar over-pagina + contact */
+.site-footer {
+  max-width: 720px;
+  margin: 4rem auto 2rem;
+  padding: 2rem 1.5rem 0;
+  border-top: 1px solid var(--line);
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.site-footer a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+.site-footer a:hover { text-decoration: underline; }
+.site-footer .sep { margin: 0 0.5rem; opacity: 0.5; }
+.site-footer .muted { display: block; margin-top: 0.4rem; font-size: 0.78rem; }
