@@ -24,7 +24,7 @@ from typing import Optional
 
 import references
 import social_questions
-from adapters import bag, bereikbaarheid, cbs, kadaster_woz, klimaat, leefbaarometer, onderwijs, overpass, pdok_locatie, politie, rivm_geluid, rivm_lki, rvo_ep, verkiezingen, woning_extras, woz_loket
+from adapters import bag, bereikbaarheid, cbs, klimaat, leefbaarometer, onderwijs, overpass, pdok_locatie, politie, rivm_geluid, rivm_lki, rvo_ep, verbouwing, verkiezingen, woning_extras, woz_loket, wkpb, zonnepanelen
 
 
 def _as_ref(r) -> Optional[dict]:
@@ -82,8 +82,9 @@ class ScanResult:
     leefkwaliteit: dict  # Sectie 5
     klimaat: dict  # Sectie 6
     onderwijs: dict  # Sectie 7 — kinderopvang + scholen + inspectie
-    bereikbaarheid: dict  # Sectie 8 — OV + auto
-    sociale_vragen: list[dict]  # 3 menselijke vragen (post-processing)
+    bereikbaarheid: dict  # Sectie 9 — OV + auto
+    verbouwing: dict  # Sectie 10 — verbouwingsmogelijkheden (lazy-loaded)
+    sociale_vragen: list[dict]  # 3 menselijke vragen (post-processing, deprecated)
     provenance: list[dict]  # bronvermelding per sectie voor UI-tags
 
 
@@ -119,32 +120,29 @@ async def scan(query: str) -> ScanResult:
     )
 
     # Stap 2c: RVO EP-Online + TK2025-uitslag (beide synchroon, geen I/O)
-    # + Kadaster WOZ (async — vereist API-key, retourneert None zonder).
+    # + WOZ-Waardeloket per pand (publieke viewer-API, rate-limited 1/s).
     energielabel = rvo_ep.fetch_label(
         match.postcode or "", match.huisnummer or ""
     )
     tk_uitslag = verkiezingen.fetch_top3(match.gemeentecode or "")
     woz_adres = await _cached_fetch_woz_adres(
         match.bag_verblijfsobject_id or "",
-        match.postcode or "",
-        match.huisnummer or "",
     )
 
     # Stap 2d: RIVM luchtkwaliteit + Klimaateffectatlas + Leefbaarometer
     # (allemaal punt-queries op externe services; parallel).
-    # Klimaat (CAS — 8 parallel sub-calls, ~500-1500ms) en bereikbaarheid
-    # (Overpass — 2-5s cold) zijn de zwaarste externe deps. Verplaats naar
-    # aparte /klimaat en /bereikbaarheid endpoints zodat de hoofd-scan
-    # niet wacht. Hier alleen lucht + leefbaarheid + geluid (sneller).
+    # Klimaat (CAS — 8 parallel sub-calls, ~500-1500ms), bereikbaarheid
+    # (Overpass — 2-5s cold) en woning-extras (RCE WFS + Overpass-groen,
+    # 500-1500ms) zijn de zwaarste externe deps. Verplaats naar aparte
+    # /klimaat, /bereikbaarheid en /woning-extras endpoints zodat de hoofd-
+    # scan niet wacht. Hier alleen lucht + leefbaarheid + geluid (sneller).
     lucht_task = _cached_fetch_lucht(match.rd_x, match.rd_y)
     leef_task = _cached_fetch_leefbaarheid(match.rd_x, match.rd_y)
     geluid_task = _cached_fetch_geluid(match.rd_x, match.rd_y)
-    extras_task = _cached_fetch_woning_extras(
-        match.lat, match.lon, match.rd_x, match.rd_y, match.gemeentecode
+    lucht, leefbaarheid, geluid = await asyncio.gather(
+        lucht_task, leef_task, geluid_task
     )
-    lucht, leefbaarheid, geluid, extras = await asyncio.gather(
-        lucht_task, leef_task, geluid_task, extras_task
-    )
+    extras = None  # lazy geladen via /woning-extras endpoint
 
     # Buurtnaam uit Leefbaarometer: handig voor het adres-kopje
     buurt_naam = leefbaarheid.buurt_naam if leefbaarheid else None
@@ -156,6 +154,8 @@ async def scan(query: str) -> ScanResult:
             "display_name": match.display_name,
             "postcode": match.postcode,
             "huisnummer": match.huisnummer,
+            "huisnummertoevoeging": match.huisnummertoevoeging,
+            "huisletter": match.huisletter,
             "buurtcode": match.buurtcode,
             "buurt_naam": buurt_naam,
             "wijkcode": match.wijkcode,
@@ -180,6 +180,9 @@ async def scan(query: str) -> ScanResult:
         klimaat={"available": False, "pending": True},
         onderwijs=_build_onderwijs(match.lat, match.lon),
         bereikbaarheid={"available": False, "pending": True},
+        # Verbouwing (Sectie 10): lazy geladen via /verbouwing endpoint.
+        # 3 WFS-calls (BRK + RCE + BAG-geom) + Shapely ~600-900ms.
+        verbouwing={"available": False, "pending": True},
         sociale_vragen=[],  # gevuld in result_as_dict na serialisatie
         provenance=_provenance(match.buurtcode or ""),
     )
@@ -262,29 +265,30 @@ async def _cached_fetch_woz_trend(buurtcode: str) -> list[dict]:
 
 
 async def _cached_fetch_woz_adres(
-    bag_vbo: str, postcode: str, huisnummer: str
-) -> Optional[kadaster_woz.WozWaarde]:
-    """WOZ per adres via Kadaster bevragingen-API; vereist API-key.
+    bag_vbo: str,
+) -> Optional[woz_loket.WozWaarde]:
+    """Pand-WOZ via WOZ-Waardeloket viewer-API (geen key, rate-limited 1/s).
 
-    Cache 30 dagen — WOZ-waarden worden jaarlijks vastgesteld, dus langere
-    TTL is veilig. Retourneert None als geen key gezet of geen WOZ voor
-    dit adres (bv. bij nieuwbouw nog niet getaxeerd).
+    We delen deze cache met fetch_woz_pand() (`/woz` endpoint) zodat een
+    request van de hoofd-scan ook de losse endpoint-call goedkoop maakt.
+    Cache 365 dagen — WOZ-peildata muteren jaarlijks, dus ruim TTL is veilig.
+
+    Retourneert None bij missing BAG-VBO of fail; UI valt dan terug op
+    buurt-WOZ (CBS) die in dezelfde scan al wordt opgehaald.
     """
-    if not (bag_vbo or (postcode and huisnummer)):
+    if not bag_vbo:
         return None
-    key = f"wozadres:{bag_vbo}:{postcode}:{huisnummer}"
-    hit = _cache_get(key, 30 * 24 * 3600)
-    if isinstance(hit, kadaster_woz.WozWaarde):
+    key = f"woz_pand:{bag_vbo}"
+    hit = _cache_get(key, 365 * 24 * 3600)
+    # Cache kan zowel WozWaarde (van deze functie) als dict (van fetch_woz_pand)
+    # zijn — we lezen alleen WozWaarde-vorm uit; dict laten we de andere route.
+    if isinstance(hit, woz_loket.WozWaarde):
         return hit
     try:
-        # Prefer BAG VBO-id (preciest); fallback op postcode+huisnummer
-        if bag_vbo:
-            result = await kadaster_woz.fetch_woz_by_bag(bag_vbo)
-        else:
-            result = await kadaster_woz.fetch_woz_by_adres(postcode, huisnummer)
+        result = await woz_loket.fetch_woz(bag_vbo)
     except Exception:
         return None
-    if result is not None:
+    if result is not None and result.huidige_waarde_eur is not None:
         _cache_set(key, result)
     return result
 
@@ -390,6 +394,719 @@ async def _cached_fetch_woning_extras(
     return result
 
 
+async def _cached_fetch_verbouwing(
+    lat: float, lon: float, rd_x: float, rd_y: float,
+    bag_pand_id: Optional[str],
+    gemeentecode: Optional[str] = None,
+    gemeente_naam: Optional[str] = None,
+    eigen_vbo_id: Optional[str] = None,
+) -> Optional[verbouwing.VerbouwingsInfo]:
+    """Verbouwing: BRK-perceel + RCE-gezicht + Shapely achtererf-analyse +
+    gemeentelijk-monument-check (per-gemeente dispatch).
+
+    Cache 30 dagen — percelen en beschermde gezichten veranderen bijna nooit.
+    Cache-key versie 'v2': inclusief pand_op_perceel + gemeentelijk monument.
+    """
+    if not (lat and lon):
+        return None
+    # v3: inclusief stapeling-analyse (VBO's per pand voor verdieping).
+    key = f"verbouwing:v3:{round(lat*10000)}_{round(lon*10000)}:{bag_pand_id or ''}:{eigen_vbo_id or ''}:{gemeentecode or ''}"
+    hit = _cache_get(key, 30 * 24 * 3600)
+    if isinstance(hit, verbouwing.VerbouwingsInfo):
+        return hit
+    try:
+        result = await verbouwing.fetch_verbouwing(
+            lat=lat, lon=lon, rd_x=rd_x, rd_y=rd_y,
+            bag_pand_id=bag_pand_id,
+            gemeentecode=gemeentecode,
+            gemeente_naam=gemeente_naam,
+            eigen_vbo_id=eigen_vbo_id,
+        )
+    except Exception:
+        return None
+    if result:
+        _cache_set(key, result)
+    return result
+
+
+async def fetch_verbouwing_section(
+    lat: float, lon: float, rd_x: float, rd_y: float,
+    bag_pand_id: Optional[str],
+    gemeentecode: Optional[str] = None,
+    gemeente_naam: Optional[str] = None,
+    huisnummertoevoeging: Optional[str] = None,
+    eigen_vbo_id: Optional[str] = None,
+) -> dict:
+    """Los endpoint voor Sectie 10 Verbouwingsmogelijkheden."""
+    v = await _cached_fetch_verbouwing(
+        lat, lon, rd_x, rd_y, bag_pand_id,
+        gemeentecode=gemeentecode, gemeente_naam=gemeente_naam,
+        eigen_vbo_id=eigen_vbo_id,
+    )
+    return _build_verbouwing(v, huisnummertoevoeging=huisnummertoevoeging)
+
+
+def _build_verbouwing(
+    v: Optional[verbouwing.VerbouwingsInfo],
+    huisnummertoevoeging: Optional[str] = None,
+) -> dict:
+    """Serialize VerbouwingsInfo naar JSON-response voor Sectie 10."""
+    if v is None:
+        return {"available": False}
+    out: dict = {"available": True, "pending": False}
+    if v.perceel is not None:
+        out["perceel"] = {
+            "perceelnummer": v.perceel.perceelnummer,
+            "gemeente_code": v.perceel.gemeente_code,
+            "oppervlakte_m2": v.perceel.oppervlakte_m2,
+        }
+    if v.pand_op_perceel_m2 is not None:
+        out["pand_op_perceel_m2"] = v.pand_op_perceel_m2
+    if v.pand_totaal_m2 is not None:
+        out["pand_totaal_m2"] = v.pand_totaal_m2
+    out["woning_type_hint"] = v.woning_type_hint
+    if v.achtererf is not None:
+        out["achtererf"] = {
+            "onbebouwd_m2": v.achtererf.onbebouwd_m2,
+            "onbebouwd_pct": v.achtererf.onbebouwd_pct,
+            "achtererf_m2": v.achtererf.achtererf_m2,
+            "uitbouw_diepte_max_m": v.achtererf.uitbouw_diepte_max_m,
+        }
+    if v.beschermd_gezicht is not None:
+        out["beschermd_gezicht"] = {
+            "naam": v.beschermd_gezicht.naam,
+            "status": v.beschermd_gezicht.status,
+        }
+    if v.gem_monument is not None:
+        out["gem_monument"] = {
+            "checked": v.gem_monument.checked,
+            "is_monument": v.gem_monument.is_monument,
+            "status": v.gem_monument.status,
+            "naam": v.gem_monument.naam,
+            "deeplink": v.gem_monument.deeplink,
+        }
+    # 3D BAG pand-hoogte
+    if v.pand_hoogte is not None and v.pand_hoogte.nokhoogte_m is not None:
+        ph = v.pand_hoogte
+        out["pand_hoogte"] = {
+            "bouwlagen": ph.bouwlagen,
+            "nokhoogte_m": round(ph.nokhoogte_m, 1) if ph.nokhoogte_m else None,
+            "goothoogte_m": round(ph.goothoogte_m, 1) if ph.goothoogte_m else None,
+            "daktype": ph.daktype,
+        }
+    # Stapeling-info (BAG-VBO's per pand) — kernsignaal voor verdieping
+    if v.stapeling:
+        out["stapeling"] = {
+            "is_gestapeld": v.stapeling.is_gestapeld,
+            "aantal_wonen": v.stapeling.aantal_wonen,
+            "eigen_verdieping": v.stapeling.eigen_verdieping,
+            "totaal_etages": v.stapeling.totaal_etages,
+            "is_bovenste": v.stapeling.is_bovenste,
+        }
+    # Publiekrechtelijke beperkingen (monument-status landelijk dekkend)
+    if v.wkpb_beperkingen:
+        out["wkpb"] = [
+            {
+                "grondslag_code": b.grondslag_code,
+                "monument_type": b.monument_type,
+                "datum_in_werking": b.datum_in_werking,
+            }
+            for b in v.wkpb_beperkingen
+        ]
+    # Bijgebouwen (andere BAG-panden op hetzelfde perceel — schuren, aanbouwen)
+    if v.bijgebouwen:
+        out["bijgebouwen"] = [
+            {
+                "pand_id": b.pand_id,
+                "oppervlakte_m2": b.oppervlakte_m2,
+                "totale_pand_m2": b.totale_pand_m2,
+                "bouwjaar": b.bouwjaar,
+            }
+            for b in v.bijgebouwen
+        ]
+    # BP-regels uit Haiku-extractie
+    if v.bp_regels is not None:
+        out["bp_regels"] = {
+            "max_bouwhoogte_m": v.bp_regels.max_bouwhoogte_m,
+            "max_goothoogte_m": v.bp_regels.max_goothoogte_m,
+            "max_bouwlagen": v.bp_regels.max_bouwlagen,
+            "kap_verplicht": v.bp_regels.kap_verplicht,
+            "plat_dak_toegestaan": v.bp_regels.plat_dak_toegestaan,
+            "bestemming": v.bp_regels.bestemming,
+            "toelichting": v.bp_regels.toelichting,
+        }
+    # DSO omgevingsdata — alleen als key gezet (anders None).
+    if v.omgevingsdata is not None and v.omgevingsdata.omgevingsplan is not None:
+        op = v.omgevingsdata.omgevingsplan
+        out["omgevingsplan"] = {
+            "naam": _vertaal_omgevingsplan_naam(op.officiele_titel),
+            "officiele_titel": op.officiele_titel,  # behouden voor debug
+            "uri": op.uri_identificatie,
+            "bevoegd_gezag": op.bevoegd_gezag_code,
+            "aantal_activiteiten": len(v.omgevingsdata.activiteiten),
+            "aantal_regelteksten": v.omgevingsdata.aantal_regelteksten,
+            "overige_regelingen": len(v.omgevingsdata.overige_regelingen),
+        }
+    if v.ruimtelijkeplannen_url:
+        out["ruimtelijkeplannen_url"] = v.ruimtelijkeplannen_url
+    if v.omgevingsloket_url:
+        out["omgevingsloket_url"] = v.omgevingsloket_url
+    # Fase 2: beslisboom — 4 cards met concrete mogelijkheden.
+    out["mogelijkheden"] = _build_mogelijkheden(
+        v, huisnummertoevoeging=huisnummertoevoeging
+    )
+    return out
+
+
+def _build_uitbouw_criteria(
+    v: verbouwing.VerbouwingsInfo, ach
+) -> list[dict]:
+    """Bouw de Bbl-criteria-checklist voor 'uitbouw achter' vergunningvrij.
+
+    Bbl art. 2.29 stelt 8 voorwaarden. 7 kunnen we zelf verifiëren met
+    beschikbare data (monument, achtererf, woonfunctie, oppervlakte-cap).
+    1 moet user zelf bevestigen (geen bestaande andere aanbouw).
+
+    Elke criterium: {label, status ('pass'/'fail'/'unknown'), detail}.
+    """
+    crits: list[dict] = []
+
+    # Monument-check (al gedaan in voorafgaande hoofd-flow, maar expliciet tonen)
+    is_rijks = (v.gem_monument is not None and v.gem_monument.checked
+                and v.gem_monument.is_monument
+                and (v.gem_monument.status or "").lower().find("rijks") >= 0)
+    is_gem_mon = (v.gem_monument is not None and v.gem_monument.checked
+                  and v.gem_monument.is_monument)
+    beschermd = v.beschermd_gezicht is not None
+
+    # Wkpb-check: landelijk dekkend voor zowel rijks- als gemeentelijke monumenten.
+    wkpb_rijks = wkpb.is_rijksmonument(v.wkpb_beperkingen)
+    wkpb_gem = wkpb.is_gemeentelijk_monument(v.wkpb_beperkingen)
+    # Combineer met bestaande RCE-rijksmonument-check (dubbele verificatie)
+    is_rijks_all = is_rijks or wkpb_rijks
+    is_gem_mon_all = is_gem_mon or wkpb_gem
+
+    crits.append({
+        "label": "Geen rijksmonument",
+        "status": "fail" if is_rijks_all else "pass",
+        "detail": "Niet in het landelijk monumentenregister"
+            if not is_rijks_all else "Monumentenvergunning verplicht",
+    })
+    crits.append({
+        "label": "Geen gemeentelijk monument",
+        "status": "fail" if (is_gem_mon_all and not is_rijks_all) else "pass",
+        "detail": "Gecontroleerd via Kadaster Wkpb-register (landelijk dekkend)"
+            if not is_gem_mon_all
+            else "Staat in gemeentelijk monumentenregister",
+    })
+    crits.append({
+        "label": "Niet in beschermd stadsgezicht",
+        "status": "fail" if beschermd else "pass",
+        "detail": ("Binnen " + v.beschermd_gezicht.naam) if beschermd else "Geen bijzondere gebiedsbescherming",
+    })
+
+    # Achtertuin + oppervlaktestaffel
+    if ach and ach.achtererf_m2 and ach.achtererf_m2 > 10:
+        crits.append({
+            "label": "Achtertuin aanwezig",
+            "status": "pass",
+            "detail": f"{ach.achtererf_m2} m² tuin achter het huis",
+        })
+        max_bouw, uitleg = _bbl_max_bijbouw(ach.achtererf_m2)
+        # Bestaande bijgebouwen tellen mee — netto beschikbaar is wat overblijft
+        reeds = sum(b.oppervlakte_m2 for b in v.bijgebouwen)
+        if reeds > 0:
+            netto = max(0, round(max_bouw - reeds, 1))
+            crits.append({
+                "label": "Oppervlakte-limiet aanbouw",
+                "status": "pass" if netto >= 10 else "fail",
+                "detail": f"max {max_bouw} m² totaal − {reeds} m² bestaand = nog {netto} m² beschikbaar · {uitleg}",
+            })
+        else:
+            crits.append({
+                "label": "Oppervlakte-limiet aanbouw",
+                "status": "pass",
+                "detail": f"max {max_bouw} m² aanbouwen en bijgebouwen samen · {uitleg}",
+            })
+    else:
+        crits.append({
+            "label": "Achtertuin aanwezig",
+            "status": "fail",
+            "detail": "Onvoldoende open terrein achter het huis",
+        })
+
+    # Locatie: achter de woning (niet aan voorkant of openbare zijgevel)
+    if ach and ach.uitbouw_diepte_max_m and ach.uitbouw_diepte_max_m > 0:
+        crits.append({
+            "label": "Bouwlocatie achter de woning",
+            "status": "pass",
+            "detail": "Automatisch bepaald via voor-/achterkant-analyse",
+        })
+
+    # Woonfunctie
+    crits.append({
+        "label": "Het is een woning",
+        "status": "pass",
+        "detail": "Aanbouw moet functioneel verbonden zijn met de woning",
+    })
+
+    # Uitbouw tot 4 m diep
+    if ach and ach.uitbouw_diepte_max_m and ach.uitbouw_diepte_max_m >= 4:
+        crits.append({
+            "label": "Genoeg ruimte voor 4 m diepe uitbouw",
+            "status": "pass",
+            "detail": f"{ach.uitbouw_diepte_max_m:.1f} m beschikbaar achter de gevel",
+        })
+
+    # Plat dak ≤ 3 m (we adviseren dit als default)
+    crits.append({
+        "label": "Plat dak ≤ 3 m hoog",
+        "status": "pass",
+        "detail": "Met plat dak van 3 m blijf je binnen de regels",
+    })
+
+    # Dakrand ≤ 0,3 m boven 1e verdiepingsvloer — we gaan uit van een
+    # normale aanbouw-uitvoering die hieraan voldoet.
+    crits.append({
+        "label": "Aanbouw-dak past onder 1e verdiepingsvloer",
+        "status": "pass",
+        "detail": "Standaard uitvoering voldoet automatisch",
+    })
+
+    # Bestaande aanbouw/schuur: check of er andere BAG-panden op hetzelfde
+    # perceel staan. Als ja → m² telt mee in de Bbl-staffel (al verrekend
+    # hierboven onder Oppervlakte-limiet). Status hangt af van de NETTO
+    # beschikbare ruimte; alleen als er onvoldoende ruimte overblijft wordt
+    # dit een fail. Anders is het een info-regel ("X m² bestaand verrekend").
+    if v.bijgebouwen and ach and ach.achtererf_m2:
+        reeds = sum(b.oppervlakte_m2 for b in v.bijgebouwen)
+        max_bouw_cap, _ = _bbl_max_bijbouw(ach.achtererf_m2)
+        netto = max(0, round(max_bouw_cap - reeds, 1))
+        namen = ", ".join(f"{b.oppervlakte_m2} m²" for b in v.bijgebouwen[:3])
+        if netto >= 10:
+            crits.append({
+                "label": "Bestaande aanbouw/schuur verrekend",
+                "status": "pass",
+                "detail": f"{len(v.bijgebouwen)} in BAG ({namen}) · {reeds} m² al verrekend in oppervlakte-limiet, {netto} m² blijft beschikbaar",
+            })
+        else:
+            crits.append({
+                "label": "Geen ruimte meer voor uitbouw",
+                "status": "fail",
+                "detail": f"{reeds} m² aan bijgebouwen verbruikt de Bbl-limiet bijna volledig ({netto} m² over)",
+            })
+    else:
+        crits.append({
+            "label": "Geen bestaande aanbouw of schuur",
+            "status": "pass",
+            "detail": "Geen extra pand op dit perceel geregistreerd · check zelf op kleine tuinhuisjes of carports",
+        })
+
+    return crits
+
+
+def _bbl_max_bijbouw(achtererf_m2: int) -> tuple[float, str]:
+    """Bbl art. 2.29 — maximum oppervlakte aanbouwen + bijgebouwen SAMEN.
+
+    Staffel:
+      achtererf < 100 m²  → 50 % van het erf
+      achtererf 100-300   → 50 m² + 20 % van (erf − 100)
+      achtererf > 300     → 90 m² + 10 % van (erf − 300), max 150 m²
+
+    Returns: (max_m², menselijke uitleg van de formule).
+    """
+    if achtererf_m2 < 100:
+        m = round(achtererf_m2 * 0.5, 1)
+        return m, f"tuin <100 m² → 50 % bebouwbaar"
+    if achtererf_m2 <= 300:
+        m = round(50 + 0.2 * (achtererf_m2 - 100), 1)
+        return m, f"tuin 100-300 m² → 50 m² plus 20 % van het meerdere"
+    m = min(150.0, round(90 + 0.1 * (achtererf_m2 - 300), 1))
+    cap = " (bovengrens)" if m >= 150 else ""
+    return m, f"tuin >300 m² → 90 m² plus 10 % van het meerdere{cap}"
+
+
+def _schat_uitbouw_breedte(pand_m2: Optional[int]) -> float:
+    """Schat realistische uitbouw-breedte op basis van pand-footprint.
+
+    We nemen aan: pand-rechthoek aspect ratio ~1.3 (huizen zijn iets dieper
+    dan breed in NL-straten). Lange kant = √(opp · 1.3), korte = opp / lange.
+    De achtergevel-breedte is meestal de KORTE kant. Voor uitbouw pakken we
+    ~80% daarvan (erfgrens-marge + praktische bouwkunde).
+    """
+    if not pand_m2 or pand_m2 < 20:
+        return 3.5  # minimum vuistregel
+    lang = (pand_m2 * 1.3) ** 0.5
+    kort = pand_m2 / lang
+    return round(kort * 0.8, 1)
+
+
+def _vertaal_omgevingsplan_naam(officiele_titel: str) -> str:
+    """Vertaal officiële DSO-regelingsnaam naar begrijpelijke tekst voor kopers.
+
+    DSO-titels zoals "Technisch in beheer nemen van de bruidsschat in het
+    Omgevingsplan gemeente Hillegom" bevatten juridisch jargon dat
+    transitieregels-status aanduidt. Voor een koper volstaat "Omgevingsplan
+    gemeente Hillegom". We zoeken naar het "Omgevingsplan ..." deel en
+    gebruiken dat; bij ontbreken val terug op origineel.
+    """
+    if not officiele_titel:
+        return "het omgevingsplan"
+    t = officiele_titel.strip()
+    # Pak alles vanaf "Omgevingsplan" — dat is altijd het kern-concept.
+    idx = t.lower().find("omgevingsplan")
+    if idx >= 0:
+        return "het " + t[idx:].rstrip(".")
+    # Fallback voor bestemmingsplannen of overig
+    if "bestemmingsplan" in t.lower():
+        return t
+    return "het geldende omgevingsplan"
+
+
+def _apply_vergunningcheck(cards: list[dict], vc_per_card: dict) -> list[dict]:
+    """Verrijk elke beslisboom-card met Vergunningcheck-meta indien beschikbaar.
+
+    Toont bij de card: aantal officiële activiteiten gevonden + aantal vragen
+    dat beantwoord moet worden op Omgevingsloket voor een definitief verdict.
+    Verandert de card-level NIET (nog); dat vereist default-antwoorden en
+    per-activiteit analyse in een toekomstige uitbreiding.
+    """
+    for c in cards:
+        res = vc_per_card.get(c["key"])
+        if res is None:
+            continue
+        c["vergunningcheck"] = {
+            "werkzaamheid_urn": res.werkzaamheid_urn,
+            "aantal_activiteiten": res.aantal_activiteiten,
+            "aantal_vragen": res.aantal_vragen,
+            "bestuurslaag": res.bestuursorgaan_bestuurslaag,
+        }
+    return cards
+
+
+def _verdieping_uit_toevoeging(
+    toevoeging: Optional[str], bouwlagen: Optional[int]
+) -> Optional[tuple[int, bool]]:
+    """Pak verdieping uit de huisnummertoevoeging, check of 't de bovenste is.
+
+    Amsterdams/stedelijke patroon:
+      "7-1" → 1e verdieping, "7-2" → 2e etc. (numeriek)
+      "H", "hs", "hs.", "huis", "bg", "0" → begane grond-etage van gestapeld pand
+    Enkele letters als "A", "B" zijn vaak adres-splits, niet etage — die
+    behandelen we niet als etage-aanduiding.
+
+    Returns: (verdieping_nr, is_bovenste) of None als we 't niet weten.
+    """
+    if not toevoeging or bouwlagen is None or bouwlagen < 2:
+        return None
+    t = str(toevoeging).strip().lower()
+    if t in ("h", "hs", "hs.", "huis", "bg", "0"):
+        return (0, bouwlagen <= 1)
+    if t.isdigit():
+        v = int(t)
+        if v < 0 or v >= 20:
+            return None
+        return (v, v >= bouwlagen - 1)
+    return None
+
+
+def _is_etage_toevoeging(toevoeging: Optional[str]) -> bool:
+    """True als de toevoeging een etage-aanduiding is (vs. adres-split).
+
+    Onafhankelijk van 3D BAG, want dit signaal is alleen gebaseerd op de
+    huisnummer-conventie: "7-H" / "7-1" / "7-2" zijn etages in een gestapeld
+    pand, ongeacht of we bouwlagen kennen.
+    """
+    if not toevoeging:
+        return False
+    t = str(toevoeging).strip().lower()
+    if t in ("h", "hs", "hs.", "huis", "bg"):
+        return True
+    return t.isdigit()
+
+
+def _build_mogelijkheden(
+    v: verbouwing.VerbouwingsInfo,
+    huisnummertoevoeging: Optional[str] = None,
+) -> list[dict]:
+    """Beslisboom: bepaal per mogelijkheid of het kan, met toelichting.
+
+    Retourneert 4 cards: uitbouw-achter, dakkapel, tuinhuis, optopping.
+    Level: 'good' (groen/ja), 'neutral' (oranje/voorwaardelijk), 'warn'
+    (rood/nee of vergunning-plicht), 'unknown' (grijs/BP-data ontbreekt).
+    """
+    cards: list[dict] = []
+
+    beschermd = v.beschermd_gezicht is not None
+    # Rijks- en gemeentelijk-monument: combineer RCE/Amsterdam + landelijke
+    # Wkpb-check. Die laatste is door heel NL dekkend en vangt o.a. Hillegom
+    # gemeentelijke monumenten die voorheen onzichtbaar waren.
+    is_rijks_rce = (
+        v.gem_monument is not None
+        and v.gem_monument.checked
+        and v.gem_monument.is_monument
+        and (v.gem_monument.status or "").lower().find("rijks") >= 0
+    )
+    is_gem_mon_city = (
+        v.gem_monument is not None
+        and v.gem_monument.checked
+        and v.gem_monument.is_monument
+    )
+    is_rijks = is_rijks_rce or wkpb.is_rijksmonument(v.wkpb_beperkingen)
+    is_gem_mon = is_gem_mon_city or wkpb.is_gemeentelijk_monument(v.wkpb_beperkingen)
+    # Alle monument-statussen in één vlag; dakkapel/optopping/tuinhuis
+    # moeten vergunning vragen bij elk monumenttype.
+    is_monument = is_rijks or is_gem_mon
+
+    # Appartement-detectie — BAG-aantal-verblijfsobjecten is de DEFINITIEVE
+    # autoriteit (Kadaster bron). Ratio-heuristics komen alleen in beeld
+    # als die data ontbreekt, want ze produceren false positives op
+    # vrijstaande woningen met groot perceel (bv. boerderij-kavel).
+    is_appartement = False
+    complex_signal = ""
+    stap = v.stapeling
+    # Ground truth: BAG-stapeling-analyse kent het EXACTE aantal woningen
+    # in dit pand. ≥2 = gestapeld = appartement. =1 = geen appartement
+    # (ongeacht perceel-grootte of pand/perceel-ratio).
+    if stap is not None and stap.aantal_wonen is not None:
+        if stap.is_gestapeld or stap.aantal_wonen >= 2:
+            is_appartement = True
+            complex_signal = (
+                f"gestapeld pand ({stap.aantal_wonen} woningen in 1 BAG-pand)"
+            )
+        # Als stap.aantal_wonen == 1, dan is het GEEN appartement — punt.
+        # Geen heuristic meer die dit overruled.
+    else:
+        # Stapeling-fetch faalde (bv. geen VBO-data) — val terug op
+        # zwakkere signalen in deze volgorde van betrouwbaarheid.
+        if _is_etage_toevoeging(huisnummertoevoeging):
+            is_appartement = True
+            complex_signal = "etage-woning (huisnummertoevoeging)"
+        elif v.perceel and v.pand_totaal_m2 and v.perceel.oppervlakte_m2:
+            ratio_groot = v.pand_totaal_m2 / max(1, v.perceel.oppervlakte_m2)
+            if ratio_groot > 3:
+                # BAG-pand loopt over meerdere percelen → waarschijnlijk
+                # appartementencomplex (of rijwoning, maar die behandelen
+                # we hetzelfde qua bouw-beperkingen).
+                is_appartement = True
+                complex_signal = "BAG-pand loopt over meerdere percelen"
+            # Geen "kleine woning op groot perceel"-heuristic meer: die
+            # gaf false positives op landelijke vrijstaande woningen
+            # (bv. 's-Gravenschanslaan 1 Slochteren: 94 m² pand op 835 m²
+            # perceel = 11%, maar is gewoon vrijstaande woning).
+    ach = v.achtererf
+    onbebouwd_pct = ach.onbebouwd_pct if ach else None
+    diepte = ach.uitbouw_diepte_max_m if ach else None
+
+    # 1. Uitbouw achter -----------------------------------------------------
+    uitbouw: dict = {"key": "uitbouw", "titel": "Uitbouw achter", "icon": "↔"}
+    if is_rijks:
+        uitbouw.update(level="warn",
+            samenvatting="Vergunning voor rijksmonument nodig",
+            detail="Dit is een rijksmonument — voor elke wijziging aan de "
+                   "buitenkant heb je een monumentenvergunning nodig en de "
+                   "welstandscommissie beoordeelt de uitvoering. Binnen "
+                   "verbouwen mag vaak wel zonder vergunning.")
+    elif is_gem_mon:
+        uitbouw.update(level="warn",
+            samenvatting="Vergunning voor gemeentelijk monument nodig",
+            detail="Dit is een gemeentelijk monument — een uitbouw is nooit "
+                   "vergunningvrij. Altijd een omgevingsvergunning en "
+                   "welstandstoets; de gemeente beoordeelt of de uitbouw de "
+                   "monumentale waarde aantast.")
+    elif beschermd:
+        uitbouw.update(level="warn",
+            samenvatting="Altijd met vergunning",
+            detail="Deze woning ligt in een beschermd stadsgezicht. Voor elke uitbouw "
+                   "heb je een vergunning nodig en oordeelt de welstandscommissie "
+                   "over materiaal, kleur en vormgeving.")
+    elif is_appartement:
+        uitbouw.update(level="warn",
+            samenvatting="Toestemming VvE nodig",
+            detail="Dit is een appartementencomplex. Uitbouwen kan alleen met "
+                   "toestemming van de Vereniging van Eigenaren (VvE) en de "
+                   "mede-eigenaren. In de praktijk lastig, behalve voor woningen "
+                   "op de begane grond.")
+    elif diepte is None or diepte <= 0:
+        uitbouw.update(level="warn",
+            samenvatting="Geen ruimte achter het huis",
+            detail="Er is geen of te weinig open terrein achter de woning om "
+                   "een uitbouw te plaatsen. Binnen verbouwen kan natuurlijk wel.")
+    elif diepte >= 4:
+        # Schat praktische aanbouw-grootte: 4 m diep × pand-breedte × 80 %.
+        # Landelijke oppervlakte-limiet beperkt totaal aanbouw + bijgebouwen.
+        breedte = _schat_uitbouw_breedte(v.pand_op_perceel_m2)
+        geometrisch = min(4, diepte) * breedte
+        bbl_max, _ = _bbl_max_bijbouw(ach.achtererf_m2) if ach else (geometrisch, "")
+        realistisch = round(min(geometrisch, bbl_max), 1)
+        uitbouw.update(level="good",
+            samenvatting=f"~{realistisch} m² waarschijnlijk zonder vergunning",
+            detail=f"Er is ruimte voor een uitbouw van 4 m diep × ~{breedte} m "
+                   f"breed = {round(geometrisch, 1)} m². De landelijke regels "
+                   f"staan maximaal {bbl_max} m² aanbouw en bijgebouwen samen toe. "
+                   f"Met een plat dak van 3 m hoog voldoe je aan de standaardregels."
+        )
+    else:
+        breedte = _schat_uitbouw_breedte(v.pand_op_perceel_m2)
+        geometrisch = diepte * breedte
+        bbl_max, _ = _bbl_max_bijbouw(ach.achtererf_m2) if ach else (geometrisch, "")
+        realistisch = round(min(geometrisch, bbl_max), 1)
+        uitbouw.update(level="neutral",
+            samenvatting=f"Krap ({diepte} m diep)",
+            detail=f"Ruimte voor ~{realistisch} m² ({diepte} m diep × "
+                   f"{breedte} m breed), minder dan de gebruikelijke 4 m die "
+                   f"zonder vergunning is toegestaan. Met vergunning vaak mogelijk."
+        )
+    # Criteria-checklist alleen als er realistisch iets vergunningvrij kan
+    # (dus geen monument/beschermd/appartement — daar is de conclusie al
+    # "altijd vergunning" of "niet zelf te beslissen").
+    if not (is_rijks or is_gem_mon or beschermd or is_appartement):
+        uitbouw["criteria"] = _build_uitbouw_criteria(v, ach)
+    cards.append(uitbouw)
+
+    # 2. Dakkapel -----------------------------------------------------------
+    dakkapel: dict = {"key": "dakkapel", "titel": "Dakkapel", "icon": "🪟"}
+    # Verdieping-check via BAG-stapeling: we sorteren alle woon-VBO's in het
+    # pand en bepalen de positie van deze woning. is_bovenste is definitief,
+    # ongeacht welk toevoeging-patroon de gemeente gebruikt (H, 1-3, A-K).
+    stap = v.stapeling
+    niet_bovenste = (stap is not None and stap.is_gestapeld
+                     and stap.is_bovenste is False)
+    if niet_bovenste:
+        verd = stap.eigen_verdieping
+        totaal = stap.totaal_etages
+        verd_label = "begane grond" if verd == 0 else f"{verd}e verdieping"
+        dakkapel.update(level="warn",
+            samenvatting="Niet van toepassing — geen eigen dak",
+            detail=f"Jouw woning is de {verd_label} van een gestapeld pand met "
+                   f"{totaal} woningen boven elkaar. Een dakkapel vraag je aan "
+                   f"op het dak; alleen de bewoner van de bovenste woning kan "
+                   f"dit — met VvE-toestemming.")
+    elif is_rijks:
+        dakkapel.update(level="warn",
+            samenvatting="Vergunning voor rijksmonument nodig",
+            detail="Bij een rijksmonument heeft elke wijziging aan het dak "
+                   "een monumentenvergunning nodig; de welstandscommissie "
+                   "beoordeelt het ontwerp streng.")
+    elif is_gem_mon:
+        dakkapel.update(level="warn",
+            samenvatting="Vergunning voor gemeentelijk monument nodig",
+            detail="Bij een gemeentelijk monument is een dakkapel nooit "
+                   "vergunningvrij — altijd een omgevingsvergunning en "
+                   "welstandstoets, ook aan de achterkant.")
+    elif beschermd:
+        dakkapel.update(level="neutral",
+            samenvatting="Altijd met vergunning",
+            detail="In een beschermd stadsgezicht heb je altijd een vergunning "
+                   "nodig voor een dakkapel. De welstandscommissie beoordeelt "
+                   "materiaal, kleur en plaatsing.")
+    elif is_appartement:
+        dakkapel.update(level="warn",
+            samenvatting="Toestemming VvE nodig",
+            detail="Dakwijzigingen bij een appartementencomplex mogen alleen "
+                   "via de Vereniging van Eigenaren (VvE).")
+    else:
+        dakkapel.update(level="good",
+            samenvatting="Achterkant meestal zonder vergunning",
+            detail="Een dakkapel op de achterkant mag zonder vergunning als hij "
+                   "hooguit 1,75 m hoog is en voldoende afstand houdt tot dakrand "
+                   "en nok. Aan de voorkant heb je altijd een vergunning nodig.")
+    cards.append(dakkapel)
+
+    # 3. Tuinhuis -----------------------------------------------------------
+    tuinhuis: dict = {"key": "tuinhuis", "titel": "Tuinhuis", "icon": "🏡"}
+    # Appartement-eerst: het "onbebouwd m²"-getal slaat dan op het complex-
+    # terrein, niet op een eigen tuin. Een VvE-lid heeft geen eigen rechten
+    # om een tuinhuis te plaatsen op gedeelde grond.
+    if is_appartement:
+        tuinhuis.update(level="warn",
+            samenvatting="Geen eigen tuin (appartement)",
+            detail=f"Het onbebouwd terrein rond dit pand "
+                   f"({'; '.join(x for x in [complex_signal] if x)}) is complex-"
+                   f"terrein dat bij de VvE of mede-eigenaren hoort — geen eigen "
+                   f"tuin om een tuinhuis op te plaatsen.")
+    elif is_rijks or is_gem_mon or beschermd:
+        tuinhuis.update(level="neutral",
+            samenvatting="Altijd met vergunning",
+            detail="Bij een monument of in een beschermd stadsgezicht heb je "
+                   "altijd een vergunning nodig voor een tuinhuis. Vaak zijn "
+                   "alleen traditionele materialen toegestaan.")
+    elif (ach is None) or (ach.onbebouwd_m2 < 5):
+        tuinhuis.update(level="warn",
+            samenvatting="Geen eigen tuin",
+            detail="Er is te weinig open terrein om een tuinhuis te plaatsen.")
+    elif onbebouwd_pct is not None and onbebouwd_pct >= 50:
+        tuinhuis.update(level="good",
+            samenvatting="Tot ~30 m² zonder vergunning",
+            detail=f"Je hebt {ach.achtererf_m2} m² tuin achter het huis "
+                   f"({onbebouwd_pct}% van je grond is onbebouwd). Je mag er tot "
+                   f"ongeveer 30 m² aan tuinhuizen of schuren bouwen zonder "
+                   f"vergunning — maximaal 3 m hoog en niet aan de voorkant."
+        )
+    elif onbebouwd_pct is not None and onbebouwd_pct >= 25:
+        tuinhuis.update(level="neutral",
+            samenvatting="Tot ~4 m² zonder vergunning",
+            detail=f"Beperkte achtertuin van {ach.achtererf_m2} m². Kleine "
+                   f"bijgebouwen tot ~4 m² mogen zonder vergunning; groter "
+                   f"altijd met vergunning.")
+    else:
+        tuinhuis.update(level="warn",
+            samenvatting="Tuin bijna volgebouwd",
+            detail="Te weinig open ruimte voor een tuinhuis. Aan de voorkant "
+                   "mag sowieso geen tuinhuis staan.")
+    cards.append(tuinhuis)
+
+    # 4. Zonnepanelen ------------------------------------------------------
+    # Schatting o.b.v. pand-footprint, dak-type (3D BAG), oriëntatie
+    # (Shapely PCA op pand-polygoon) en monument-/appartement-vlaggen.
+    # Ranges (geen puntwaarde) want schaduw is altijd onbekende factor.
+    zonne: dict = {"key": "zonnepanelen", "titel": "Zonnepanelen", "icon": "☀️"}
+    daktype = v.pand_hoogte.daktype if v.pand_hoogte else None
+    schatting = zonnepanelen.schat_zonnepanelen(
+        pand_op_perceel_poly=v.pand_op_perceel_poly,
+        daktype=daktype,
+        is_rijksmonument=is_rijks,
+        is_gem_monument=is_gem_mon,
+        is_beschermd_gezicht=beschermd,
+        is_appartement=is_appartement,
+    )
+    if schatting is None:
+        zonne.update(level="unknown",
+            samenvatting="Onbekend — geen pand-geometrie",
+            detail="Zonder pand-polygoon van BAG kunnen we geen "
+                   "dakoppervlak schatten. Probeer het exacte huisnummer.")
+    else:
+        zonne.update(
+            level=zonnepanelen.card_level(schatting),
+            samenvatting=zonnepanelen.card_samenvatting(schatting),
+            detail=zonnepanelen.card_detail(schatting),
+        )
+        # Structured velden voor UI-grafieken/badges (frontend negeert ze als
+        # er nu nog niets mee gedaan wordt).
+        if schatting.aantal_panelen_max > 0:
+            zonne["schatting"] = {
+                "panelen_min": schatting.aantal_panelen_min,
+                "panelen_max": schatting.aantal_panelen_max,
+                "kwh_jaar_min": schatting.kwh_per_jaar_min,
+                "kwh_jaar_max": schatting.kwh_per_jaar_max,
+                "pct_huishoudverbruik_min": schatting.pct_huishoudverbruik_min,
+                "pct_huishoudverbruik_max": schatting.pct_huishoudverbruik_max,
+                "config": schatting.config_beschrijving,
+            }
+    cards.append(zonne)
+
+    # NB: Optopping-card was eerder de 4e card — verwijderd omdat max
+    # bouwhoogte via open data niet beschikbaar is sinds bruidsschat
+    # 1-1-2024 (DSO regelteksten = 0/1365 getallen voor Amsterdam, RP v4
+    # 5% coverage). Vervangen door Zonnepanelen — die we wél kunnen
+    # onderbouwen met footprint + dak-type + monument-status.
+
+    # Verrijk cards met Vergunningcheck-resultaten (indien beschikbaar)
+    cards = _apply_vergunningcheck(cards, v.vergunningcheck_per_card)
+
+    return cards
+
+
 async def _cached_fetch_bereikbaarheid(
     lat: float, lon: float
 ) -> Optional[bereikbaarheid.Bereikbaarheid]:
@@ -400,7 +1117,8 @@ async def _cached_fetch_bereikbaarheid(
     """
     if not (lat and lon):
         return None
-    key = f"bereik:{round(lat * 1000)}_{round(lon * 1000)}"
+    # v2: OV-reistijd-formule gekalibreerd tegen 9292 (was systematisch te krap)
+    key = f"bereik:v2:{round(lat * 1000)}_{round(lon * 1000)}"
     hit = _cache_get(key, _OSM_TTL_S)
     if isinstance(hit, bereikbaarheid.Bereikbaarheid):
         return hit
@@ -422,7 +1140,9 @@ async def _cached_fetch_overpass(lat: float, lon: float) -> list[overpass.POI]:
     if not (lat and lon):
         return []
     # 100m rounding via lat*1000 (≈111m) / lon*1000 (iets korter in NL)
-    key = f"osm:{round(lat * 1000)}_{round(lon * 1000)}"
+    # v2: na Overpass retry+fallback fix. Oude key (v1) had stille 0-POI
+    # resultaten door rate-limit; die cachen we niet meer.
+    key = f"osm:v2:{round(lat * 1000)}_{round(lon * 1000)}"
     hit = _cache_get(key, _OSM_TTL_S)
     if isinstance(hit, list):
         return hit
@@ -612,7 +1332,7 @@ async def _cached_fetch_klimaat(
 def _build_woning(
     pand: Optional[bag.PandDetails],
     energielabel: Optional[rvo_ep.Energielabel],
-    woz_adres: Optional[kadaster_woz.WozWaarde] = None,
+    woz_adres: Optional[woz_loket.WozWaarde] = None,
     extras: Optional[woning_extras.WoningExtras] = None,
 ) -> dict:
     if pand is None:
@@ -641,19 +1361,26 @@ def _build_woning(
         },
         "bag_pand_id": pand.pand_id,
     }
-    # WOZ-per-adres: alleen beschikbaar als Kadaster-key is gezet. Wordt
-    # getoond boven het buurt-gemiddelde. Frontend kiest welke dominant is.
+    # WOZ-per-pand uit WOZ-Waardeloket. Komt nu in de eerste /scan-response
+    # (vroeger lazy via /woz endpoint en frontend-injectie). Frontend toont
+    # deze boven het buurt-gemiddelde uit CBS — pand-niveau is preciezer.
     if woz_adres is not None and woz_adres.huidige_waarde_eur:
         out["woz_adres"] = {
             "value": woz_adres.huidige_waarde_eur,
             "unit": "€",
-            "peildatum": woz_adres.peildatum,
+            "peildatum": woz_adres.huidige_peildatum,
+            "trend_pct_per_jaar": woz_adres.trend_pct_per_jaar,
             "historie": woz_adres.historie,
             "ref": _as_ref(references.ref_woz(woz_adres.huidige_waarde_eur)),
         }
 
-    # Woning-extras: Rijksmonument / Erfpacht-prevalentie / Groen in buurt
-    if extras is not None:
+    # Woning-extras: Rijksmonument (RCE WFS) + Groen (Overpass, 500-1500ms
+    # cold) worden lazy geladen via /woning-extras endpoint. Hier alleen een
+    # pending-flag zodat de frontend weet dat er nog een patch komt.
+    if extras is None:
+        out["extras_pending"] = True
+    else:
+        out["extras_pending"] = False
         if extras.rijksmonument is not None:
             rm = extras.rijksmonument
             out["rijksmonument"] = {
@@ -662,12 +1389,6 @@ def _build_woning(
                 "subcategorie": rm.subcategorie,
                 "aard_monument": rm.aard_monument,
                 "url": rm.url,
-            }
-        if extras.erfpacht is not None:
-            out["erfpacht"] = {
-                "niveau": extras.erfpacht.niveau,
-                "pct_schatting": extras.erfpacht.pct_schatting,
-                "toelichting": extras.erfpacht.toelichting,
             }
         if extras.groen is not None:
             g = extras.groen
@@ -678,6 +1399,42 @@ def _build_woning(
                 "groen_pct": g.groen_pct,
                 "aantal_elementen": g.aantal_elementen,
             }
+    return out
+
+
+async def fetch_woning_extras_section(
+    lat: float, lon: float, rd_x: float, rd_y: float,
+    gemeentecode: Optional[str],
+) -> dict:
+    """Los endpoint: Rijksmonument-check + Groen in straat.
+
+    Wordt door /woning-extras in main.py aangeroepen — niet door scan().
+    RCE WFS ~200-500ms, Overpass-groen ~500-1500ms cold. Samen too traag
+    voor de main /scan. Returnt alleen de velden die de frontend moet
+    bijpatchen in de woning-sectie.
+    """
+    extras = await _cached_fetch_woning_extras(lat, lon, rd_x, rd_y, gemeentecode)
+    if extras is None:
+        return {"available": False}
+    out: dict = {"available": True}
+    if extras.rijksmonument is not None:
+        rm = extras.rijksmonument
+        out["rijksmonument"] = {
+            "monument_nummer": rm.monument_nummer,
+            "hoofdcategorie": rm.hoofdcategorie,
+            "subcategorie": rm.subcategorie,
+            "aard_monument": rm.aard_monument,
+            "url": rm.url,
+        }
+    if extras.groen is not None:
+        g = extras.groen
+        out["groen"] = {
+            "straal_m": g.straal_m,
+            "groen_m2": g.groen_m2,
+            "cirkel_m2": g.cirkel_m2,
+            "groen_pct": g.groen_pct,
+            "aantal_elementen": g.aantal_elementen,
+        }
     return out
 
 
@@ -1053,11 +1810,8 @@ def _build_cover(l: Optional[leefbaarometer.LeefbaarheidScore]) -> dict:
         if spread >= 4:  # significant gat
             zwakste_dim = min_dim.label.lower()
             waarschuwing = (
-                f"Let op: '{min_dim.label}' scoort duidelijk lager "
-                f"({min_dim.score}/9). De Leefbaarometer weegt dimensies naar "
-                f"hun invloed op vastgoedwaarde — een hoge voorzieningen- of "
-                f"ligging-score kan statistisch de totaalscore naar boven "
-                f"trekken ondanks zwakkere sub-aspecten."
+                f"'{min_dim.label}' scoort veel lager ({min_dim.score}/9). "
+                f"Sterkere dimensies compenseren dat in de totaalscore."
             )
 
     # Genuanceerde betekenis: vervang de generieke tekst als er grote spread is
@@ -1227,38 +1981,29 @@ def _serialize_ontwikkeling(
     elif verbeteringen:
         sterkste = verbeteringen[0]
 
-    # Compacte menselijke beschrijving — geeft direct context
+    # Compacte menselijke beschrijving — lijnt consistent met het label/chip.
+    # Leefbaarometer klasse 4-5-6 = 'stabiel' (chip=STABIEL); klasse 3 of 7
+    # zijn de eerste echte klassen buiten stabiel. We gebruiken DEZELFDE
+    # grensen zodat chip en tekst nooit tegenstrijdig zijn (anders krijg je
+    # bv. "STABIEL" + "Licht verbeterd over 2 jaar" zoals vóór deze fix).
     if o.score <= 2:
         beschrijving = f"Sterk verslechterd over {horizon_label}."
     elif o.score == 3:
         beschrijving = f"Licht verslechterd over {horizon_label}."
-    elif o.score == 5:
+    elif 4 <= o.score <= 6:
         beschrijving = f"Stabiel over {horizon_label}."
-    elif o.score <= 6:
+    elif o.score == 7:
         beschrijving = f"Licht verbeterd over {horizon_label}."
-    elif o.score >= 8:
+    else:  # 8-9
         beschrijving = f"Sterk verbeterd over {horizon_label}."
-    else:
-        beschrijving = f"Verbeterd over {horizon_label}."
 
-    # Bij totaalscore 'stabiel' maar onderliggend wél beweging: nuanceren.
-    # Anders lijkt "stabiel over 10 jaar" in tegenspraak met "voorzieningen
-    # verbeterd + overlast verslechterd" eronder.
-    if o.score == 5 and veranderingen:
+    # Binnen de stabiele range (4-6) kan er onderliggend wél beweging zijn.
+    # Dan maken we dat expliciet zodat de chip STABIEL niet in tegenspraak
+    # oogt met een dimensie die bv. licht verslechterd is.
+    if 4 <= o.score <= 6 and veranderingen:
         beschrijving = (
             f"Totaal stabiel over {horizon_label}, maar onder de motorkap "
             f"wél beweging:"
-        )
-    # Tegengesteld scenario: totaal BEWOOG (verbeterd of verslechterd) maar
-    # geen enkele dimensie sprong naar een andere klasse. Dit gebeurt wanneer
-    # alle dimensies licht (<1 klasse) veranderden — de som was genoeg om het
-    # totaal omhoog te duwen, maar individueel te klein voor klasse-rounding.
-    # Zonder uitleg lijkt "Licht verbeterd" in tegenspraak met 5 keer "stabiel".
-    elif o.score != 5 and not veranderingen:
-        richting = "verbetering" if o.score > 5 else "verslechtering"
-        beschrijving += (
-            f" Kleine {richting} verspreid over alle dimensies — "
-            f"niet één specifieke dimensie sprong naar een andere klasse."
         )
 
     return {
