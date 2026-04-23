@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Wiki Index — Buurtscan"
-updated: 2026-04-22
+updated: 2026-04-23
 tags:
   - meta
   - index
@@ -14,6 +14,7 @@ Kennis-vault voor het Buurtscan-project (thuisscan/). Bevat design-beslissingen,
 
 ## Questions / syntheses
 
+- [[rapport-pdf-template-v2]] — backend `/rapport` endpoint + frontend-knop voor 13-hoofdstuk PDF; OSM + Kadaster kaarten; 22 bronnen; bullet-samenvatting; per-stat NL-vergelijking
 - [[leefbaarometer-trend-integratie]] — 2-jaars + 10-jaars ontwikkelings-layers van Leefbaarometer 3.0 op de cover; chip-niveau, threshold |Δ|≥1, beide kanten tonen ook bij stabiel-totaal
 - [[verbouwings-beslisboom-fase-2a]] — Fase 2a live: Haiku-extractor gevalideerd op 97,1% (100% op kritieke velden), 3 beslisboom-cards werkend, placeholder Optopping wacht op DSO-key
 - [[verbouwingsmogelijkheden-ontwerp]] — design voor Sectie 10 "Verbouwingsmogelijkheden": publieke data-bronnen (BRK, RCE-BPG, PDOK Plangebieden, DSO), concrete UI-blokken, beslisboom, 2-fase implementatie-plan

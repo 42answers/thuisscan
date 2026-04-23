@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Hot cache"
-updated: 2026-04-22
+updated: 2026-04-23
 tags: [meta, hot]
 ---
 
@@ -10,10 +10,10 @@ tags: [meta, hot]
 Huidige focus-onderwerpen voor deze sessie-reeks.
 
 ## Actief in ontwikkeling
-- **[[verbouwings-beslisboom-fase-2a]]** — live op buurtscan.fly.dev. Haiku-extractor draait op 97,1% accuracy. Wachten op DSO-API-key van Roel voor Fase 2b (Optopping-card echt maken).
-- **DSO-API-key** — aanvragen via developer.omgevingswet.overheid.nl/api-register/api/omgevingsdocument-presenteren/ (gratis, enkele werkdagen).
+- **[[rapport-pdf-template-v2]]** — productie-versie live op buurtscan.fly.dev. Iteratief verfijnen: Haiku-intro-zinnen per hoofdstuk, server-side PDF (Chromium in Fly-image), pre-cache op /scan-call.
 
 ## Recent opgeleverd
+- **[[rapport-pdf-template-v2]]** — `/rapport?q=…` endpoint + frontend-knop. Editorial design, 13 hoofdstukken, OSM + Kadaster kaarten op cover, bullet-samenvatting, per-stat NL-vergelijking, alle URLs klikbaar (scholen forced to scholenopdekaart.nl)
 - **[[leefbaarometer-trend-integratie]]** — cover toont nu 2-jaars + 10-jaars trend naast huidige score; threshold ≥1, beide richtingen zichtbaar, "stabiel maar beweging"-override
 - Sectie 10 "Verbouwingsmogelijkheden" — kavel-analyse + chips + 4 beslisboom-cards + deeplinks
 - Haiku-extractor met 10-panden testset (`apps/api/tests/bp_extractor_testset.py`)

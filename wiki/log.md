@@ -1,13 +1,18 @@
 ---
 type: meta
 title: "Save-log"
-updated: 2026-04-22
+updated: 2026-04-23
 tags: [meta, log]
 ---
 
 # Save-log
 
 Chronologisch (nieuw bovenaan).
+
+## [2026-04-23] save | PDF-rapport template v2.0 — backend + frontend-knop
+- Type: synthesis
+- Location: wiki/questions/rapport-pdf-template-v2.md
+- From: ontwerp + implementatie van editorial PDF-rapport (13 hoofdstukken, Source Serif Pro + Inter + IBM Plex Mono, OSM + Kadaster kaarten op cover, bullet-samenvatting, per-stat NL-vergelijking met ref-velden). Backend endpoint `/rapport?q=…` in main.py, render-engine in rapport_template.py, static-maps adapter voor tile-stitching. Frontend-knop "Volledig rapport openen" boven de scan-titel. Gebruiker print via Cmd+P naar PDF. Live op buurtscan.fly.dev.
 
 ## [2026-04-22] save | Leefbaarometer trend-integratie (2-jaar + 10-jaar)
 - Type: synthesis
