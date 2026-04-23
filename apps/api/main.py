@@ -119,34 +119,69 @@ async def lookup_endpoint(
 
 @app.get("/scan")
 async def scan_endpoint(q: str = Query(..., min_length=3, description="Adres")) -> dict:
-    """Volledige Thuisscan voor een adres: 6 secties + voorzieningen-ringen.
-
-    Hieronder orchestreert parallel PDOK + BAG + CBS. Secties 4/5/6
-    (veiligheid, leefkwaliteit, klimaat) zijn nog placeholder — die komen
-    in fase 3/4.
-    """
+    """Volledige Thuisscan voor een adres."""
     try:
         result = await orchestrator.scan(q)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Scan faalde: {e}") from e
+
+    # PRE-FETCH: warm de rapport-data parallel op de achtergrond zodat
+    # bij PDF-knop click alle lazy endpoints + maps al gecached zijn.
+    # Niet-blocking: scan-response gaat onmiddellijk naar de user.
+    import asyncio as _aio
+    async def _prefetch():
+        try:
+            await _gather_rapport_data(q)
+            print(f"[prefetch] rapport-data ready voor: {q}", flush=True)
+        except Exception as e:
+            print(f"[prefetch] failed: {e}", flush=True)
+    _aio.create_task(_prefetch())
+
     return orchestrator.result_as_dict(result)
 
 
-async def _gather_rapport_data(q: str) -> tuple[dict, str]:
+# =============================================================================
+# Rapport-data + PDF caches (in-memory, TTL).
+# Per dag (datum-stempel) en per BAG-VBO. Bij dezelfde key in TTL = instant.
+# =============================================================================
+import time as _time
+
+_DATA_CACHE: dict[str, tuple[float, dict, str]] = {}    # key → (ts, data, html)
+_PDF_CACHE: dict[str, tuple[float, bytes, str]] = {}    # key → (ts, pdf, filename)
+_DATA_TTL_S = 15 * 60          # 15 minuten — data muteert nauwelijks binnen sessie
+_PDF_TTL_S = 24 * 3600          # 24 uur — PDF voor zelfde adres = 100% identiek
+
+def _cache_key(q: str) -> str:
+    """Sluitend-genoeg sleutel voor caching (dag-precision + lower-case adres)."""
+    from datetime import date as _date
+    return f"{_date.today().isoformat()}:{q.strip().lower()}"
+
+
+async def _gather_rapport_data(q: str) -> tuple[dict, str, dict[str, float]]:
     """Verzamel alle data + render HTML voor het rapport.
 
-    Returnt (data_dict, html_string). Gedeeld door /rapport en /rapport.pdf.
+    Returnt (data, html, timing). Gedeeld door /rapport en /rapport.pdf.
+    Cached 15 min per (datum, q).
     """
     import asyncio as _aio
+    timing: dict[str, float] = {}
 
+    cache_key = _cache_key(q)
+    hit = _DATA_CACHE.get(cache_key)
+    if hit and (_time.time() - hit[0]) < _DATA_TTL_S:
+        timing["from_cache"] = round(_time.time() - hit[0], 1)
+        return hit[1], hit[2], timing
+
+    t0 = _time.time()
     try:
         scan_result = await orchestrator.scan(q)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Scan faalde: {e}") from e
+    timing["scan"] = round(_time.time() - t0, 2)
 
     scan_dict = orchestrator.result_as_dict(scan_result)
     a = scan_dict.get("adres", {})
@@ -159,6 +194,7 @@ async def _gather_rapport_data(q: str) -> tuple[dict, str]:
     gemeentecode = a.get("gemeentecode") or ""
     buurtcode = a.get("buurtcode") or ""
 
+    t1 = _time.time()
     woz_t = orchestrator.fetch_woz_pand(bag_vbo_id) if bag_vbo_id else _aio.sleep(0, {"available": False})
     voorz_t = orchestrator.fetch_voorzieningen(lat=lat, lon=lon, buurtcode=buurtcode, gemeentecode=gemeentecode)
     klim_t = orchestrator.fetch_klimaat_section(lat, lon, rd_x, rd_y) if (lat and rd_x) else _aio.sleep(0, {"available": False})
@@ -175,48 +211,98 @@ async def _gather_rapport_data(q: str) -> tuple[dict, str]:
     woz, voorz, klim, ber, extras, verb, streetmap_png, perceel_png = await _aio.gather(
         woz_t, voorz_t, klim_t, ber_t, extras_t, verb_t, streetmap_t, perceel_t,
     )
+    timing["lazy_parallel"] = round(_time.time() - t1, 2)
 
+    t2 = _time.time()
     data = {
         "scan": scan_dict, "woz": woz, "voorz": voorz, "klim": klim,
         "ber": ber, "extras": extras, "verb": verb,
         "streetmap_png": streetmap_png, "perceel_png": perceel_png,
     }
     html_str = rapport_template.render_html(data)
-    return data, html_str
+    timing["html_render"] = round(_time.time() - t2, 2)
+
+    # Schrijf naar cache
+    _DATA_CACHE[cache_key] = (_time.time(), data, html_str)
+    return data, html_str, timing
 
 
 @app.get("/rapport", response_class=HTMLResponse)
 async def rapport_endpoint(
     q: str = Query(..., min_length=3, description="Adres-zoekterm"),
 ) -> HTMLResponse:
-    """Print-ready HTML-rapport voor een adres (preview/print-mode).
-
-    Voor PDF-download: gebruik /rapport.pdf.
-    """
-    _data, html_str = await _gather_rapport_data(q)
-    return HTMLResponse(content=html_str, status_code=200)
+    """Print-ready HTML-rapport voor een adres (preview/print-mode)."""
+    _data, html_str, timing = await _gather_rapport_data(q)
+    response = HTMLResponse(content=html_str, status_code=200)
+    response.headers["X-Timing"] = ",".join(f"{k}={v}s" for k, v in timing.items())
+    return response
 
 
 @app.get("/rapport.pdf")
 async def rapport_pdf_endpoint(
     q: str = Query(..., min_length=3, description="Adres-zoekterm"),
 ) -> Response:
-    """Server-side gerenderde PDF (Playwright + Chromium). Direct download."""
-    _data, html_str = await _gather_rapport_data(q)
+    """Server-side gerenderde PDF (Playwright + Chromium). Direct download.
+
+    Cached 24u per (datum, adres) — tweede klik = instant.
+    """
+    cache_key = _cache_key(q)
+    pdf_hit = _PDF_CACHE.get(cache_key)
+    if pdf_hit and (_time.time() - pdf_hit[0]) < _PDF_TTL_S:
+        # Cache-hit: instant return
+        return Response(
+            content=pdf_hit[1],
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{pdf_hit[2]}"',
+                "X-Timing": f"from_pdf_cache={round(_time.time() - pdf_hit[0], 1)}s_ago",
+            },
+        )
+
+    data, html_str, timing = await _gather_rapport_data(q)
+    t_pdf = _time.time()
     try:
         pdf_bytes = await html_to_pdf.render_html_to_pdf(html_str)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"PDF-render faalde: {e}") from e
+    timing["pdf_render"] = round(_time.time() - t_pdf, 2)
 
-    # Filename uit adres
-    a = _data["scan"].get("adres", {})
+    a = data["scan"].get("adres", {})
     label = (a.get("display_name") or "rapport").replace(",", "").replace(" ", "-")
     filename = f"Buurtscan-{label}.pdf"
+
+    # Cache PDF voor dezelfde dag
+    _PDF_CACHE[cache_key] = (_time.time(), pdf_bytes, filename)
+
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Timing": ",".join(f"{k}={v}s" for k, v in timing.items()),
+        },
     )
+
+
+@app.on_event("startup")
+async def _startup_warm_chromium():
+    """Warm Chromium op tijdens app-start.
+
+    Eerste PDF-render kost cold ~8s door browser-launch + 1ste pagina;
+    daarna ~2s warm. Pre-warmen verschuift die 8s naar startup-tijd
+    (Fly machine wakker maken duurt al een seconde of 5).
+    """
+    import asyncio as _aio
+    async def _warm():
+        try:
+            # Render een lege HTML naar PDF om Chromium te starten + 1ste page
+            await html_to_pdf.render_html_to_pdf(
+                "<html><body><h1>warmup</h1></body></html>", timeout_ms=10_000)
+            print("[startup] Chromium warm", flush=True)
+        except Exception as e:
+            print(f"[startup] Chromium warmup failed: {e}", flush=True)
+    # Niet-blocking: laat startup snel afronden
+    _aio.create_task(_warm())
 
 
 @app.on_event("shutdown")
