@@ -17,12 +17,14 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import FileResponse, HTMLResponse, Response, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
-from adapters import bag, pdok_locatie, static_maps, html_to_pdf
+from adapters import bag, pdok_locatie, static_maps, html_to_pdf, analytics
 import orchestrator
 import rapport_template
 
@@ -32,18 +34,184 @@ app = FastAPI(
     description="Eén adres -> volledig woning- en buurtprofiel uit NL open data.",
 )
 
-# Tijdens MVP wijd open; in productie vervangen door specifiek domein.
+# ===== Middleware stack (volgorde: eerst toegevoegd = buitenste laag) =====
+# 1. GZip: 70% kleinere responses voor HTML/JSON/CSS/JS. Min 1KB om te
+#    compresseren (kleinere assets niet nodig).
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# 2. CORS: strict in productie. Alleen onze domeinen + localhost voor dev.
+_CORS_ALLOWED = [
+    "https://buurtscan.com",
+    "https://www.buurtscan.com",
+    "https://buurtscan.fly.dev",
+    "http://localhost:8000",
+    "http://localhost:8765",
+    "http://127.0.0.1:8000",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_CORS_ALLOWED,
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+
+# 3. Security headers — één middleware die alle responses verrijkt.
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Voeg veiligheids-headers toe aan elke response.
+
+    - HSTS: browser forceert HTTPS voor 1 jaar (subdomains included).
+    - X-Content-Type-Options nosniff: voorkomt MIME-sniffing.
+    - X-Frame-Options DENY: voorkomt clickjacking via iframe.
+    - Referrer-Policy: beperkt wat we in Referer-header doorsturen.
+    - Permissions-Policy: schakelt camera/mic/geolocation expliciet uit.
+    - CSP: basis policy; staat scripts toe van self + unpkg (MapLibre),
+      images van self + data: (inline favicon + kaart-overlays) + PDOK/OSM
+      tiles, fonts van Google Fonts.
+    """
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        h = response.headers
+        h.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        h.setdefault("X-Content-Type-Options", "nosniff")
+        h.setdefault("X-Frame-Options", "DENY")
+        h.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        h.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)")
+        # CSP: alleen toevoegen voor HTML-responses, niet voor API/JSON/PDF
+        # (zou onze eigen PDF-render kunnen breken als scripts opengelaten
+        # worden op het wrong content-type).
+        ct = h.get("content-type", "")
+        if ct.startswith("text/html"):
+            h.setdefault("Content-Security-Policy",
+                "default-src 'self'; "
+                "script-src 'self' https://unpkg.com https://maps.googleapis.com 'unsafe-inline'; "
+                "style-src 'self' https://unpkg.com https://fonts.googleapis.com 'unsafe-inline'; "
+                "img-src 'self' data: blob: https://*.openstreetmap.org https://*.pdok.nl "
+                    "https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com; "
+                "font-src 'self' https://fonts.gstatic.com data:; "
+                "connect-src 'self' https://api.pdok.nl https://*.openstreetmap.org "
+                    "https://service.pdok.nl https://*.overheid.nl https://service.omgevingswet.overheid.nl "
+                    "https://maps.googleapis.com; "
+                "frame-src https://www.google.com; "  # Google Maps embed
+                "object-src 'none'; "
+                "base-uri 'self'; "
+                "form-action 'self'"
+            )
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+
+# ===== Rate-limiting =====
+# Simpele in-memory rate-limit per IP per endpoint. Bewust geen Redis:
+# single-machine Fly-deploy + sliding-window in een dict is voldoende.
+# Doel: bescherming tegen scrapers / per-ongelukte refresh-loops.
+#   /rapport.pdf → 10/uur (PDF-gen kost ~$0,50 aan CPU per piek)
+#   /scan        → 60/min (snelle JSON-call)
+#   default      → 300/min
+import time as _rl_time
+from collections import defaultdict as _defaultdict
+
+_rate_windows: dict[str, list[float]] = _defaultdict(list)
+
+_RATE_LIMITS: dict[str, tuple[int, int]] = {
+    "/rapport.pdf": (10, 3600),   # 10 per uur
+    "/rapport":     (30, 3600),   # 30 per uur
+    "/scan":        (60, 60),     # 60 per minuut
+}
+_RATE_DEFAULT = (300, 60)          # 300 per minuut voor alle andere GETs
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Sla rate-limit over voor: static assets, health, OPTIONS, suggest
+        path = request.url.path
+        if (
+            path.startswith("/static")
+            or path in ("/health", "/favicon.ico", "/robots.txt", "/sitemap.xml",
+                        "/og-image.png", "/config.js", "/styles.css", "/app.js",
+                        "/", "/over", "/about", "/over-buurtscan")
+            or request.method == "OPTIONS"
+        ):
+            return await call_next(request)
+
+        limit, window_s = _RATE_LIMITS.get(path, _RATE_DEFAULT)
+        # Client-IP — Fly.io zet X-Forwarded-For
+        ip = request.headers.get("fly-client-ip") \
+             or request.headers.get("x-forwarded-for", "").split(",")[0].strip() \
+             or (request.client.host if request.client else "unknown")
+        key = f"{ip}:{path}"
+        now = _rl_time.time()
+        # Slim: prune oude entries inline
+        window = _rate_windows[key]
+        cutoff = now - window_s
+        # Efficient: remove from front (timestamps zijn oplopend)
+        while window and window[0] < cutoff:
+            window.pop(0)
+        if len(window) >= limit:
+            retry = int(window[0] + window_s - now) + 1
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "detail": f"Rate limit: {limit} requests per {window_s}s. Retry in {retry}s.",
+                },
+                headers={
+                    "Retry-After": str(retry),
+                    "X-RateLimit-Limit": str(limit),
+                    "X-RateLimit-Remaining": "0",
+                },
+            )
+        window.append(now)
+        response = await call_next(request)
+        response.headers["X-RateLimit-Limit"] = str(limit)
+        response.headers["X-RateLimit-Remaining"] = str(limit - len(window))
+        return response
+
+app.add_middleware(RateLimitMiddleware)
 
 
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+# ===== Analytics =====
+@app.get("/track")
+async def track_event(
+    event: str = Query(..., description="page_load, scan, pdf_download, preview, over_view"),
+    request: Request = None,
+) -> Response:
+    """Log een event zonder cookies of IP. Called via navigator.sendBeacon.
+
+    Elk event wordt anoniem geaggregeerd naar apps/api/cache/analytics.jsonl.
+    Return 204 No Content zodat sendBeacon tevreden is + geen response-body.
+    """
+    referer = request.headers.get("referer") if request else None
+    path = None
+    if referer:
+        try:
+            from urllib.parse import urlparse
+            path = urlparse(referer).path
+        except Exception:
+            path = None
+    analytics.track(event=event, host=(request.headers.get("host") if request else None), path=path)
+    # 1 op 1000: rotate if needed
+    import random as _rand
+    if _rand.random() < 0.001:
+        analytics.rotate_if_needed()
+    return Response(status_code=204)
+
+
+@app.get("/stats")
+async def stats_endpoint(
+    token: str = Query("", description="Admin-token uit env ADMIN_TOKEN"),
+) -> dict:
+    """Basic analytics-dashboard (JSON). Beveiligd met ADMIN_TOKEN."""
+    admin_token = os.environ.get("ADMIN_TOKEN", "").strip()
+    if not admin_token:
+        raise HTTPException(status_code=503, detail="ADMIN_TOKEN niet gezet op de server")
+    if token != admin_token:
+        raise HTTPException(status_code=401, detail="Ongeldig token")
+    return analytics.load_summary()
 
 
 @app.get("/suggest")
@@ -477,6 +645,15 @@ if WEB_DIR.exists():
             headers={"Cache-Control": _HTML_CACHE},
         )
 
+    @app.get("/manifest.json")
+    async def serve_manifest() -> FileResponse:
+        """PWA manifest — browsers gebruiken dit voor 'Toevoegen aan startscherm'."""
+        return FileResponse(
+            WEB_DIR / "manifest.json",
+            media_type="application/manifest+json",
+            headers={"Cache-Control": _STATIC_CACHE},
+        )
+
     @app.get("/og-image.png")
     async def serve_og_image() -> FileResponse:
         """Open Graph share-image (1200×630). Gegenereerd door scripts/maak_og_image.py."""
@@ -579,3 +756,32 @@ if WEB_DIR.exists():
             f'window.GOOGLE_MAPS_API_KEY = {gmaps_key!r};\n'
         )
         return Response(content=body, media_type="application/javascript")
+
+
+# ===== Custom 404 handler =====
+# FastAPI's default 404 is een JSON-response. Voor HTML-paden (waar user
+# direct naartoe navigeerde via link/typefout) tonen we onze mooie 404.html.
+# Voor API-paden (/scan, /rapport, /woz etc) behouden we JSON.
+_API_PREFIXES = (
+    "/scan", "/suggest", "/lookup", "/woz", "/klimaat", "/bereikbaarheid",
+    "/verbouwing", "/voorzieningen", "/woning-extras", "/pand-geometry",
+    "/rapport", "/rapport.pdf", "/track", "/stats", "/health",
+)
+
+
+@app.exception_handler(404)
+async def custom_404_handler(request, exc):
+    """Toon 404.html voor page-navigation, JSON voor API-requests."""
+    path = request.url.path
+    # API-paden → JSON zoals gewoonlijk
+    if any(path.startswith(p) for p in _API_PREFIXES):
+        return JSONResponse(
+            status_code=404,
+            content={"detail": exc.detail if hasattr(exc, "detail") else "Not found"},
+        )
+    # Page-navigation → HTML
+    target = WEB_DIR / "404.html"
+    if target.exists():
+        return FileResponse(target, status_code=404, headers={"Cache-Control": "no-cache"})
+    # Fallback als 404.html onverhoopt weg is
+    return HTMLResponse("<h1>404 — Pagina niet gevonden</h1>", status_code=404)

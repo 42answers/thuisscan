@@ -82,23 +82,110 @@ function hideSuggestions() { $suggestions.hidden = true; activeIndex = -1; }
 function pickCandidate(c) { $q.value = c.weergavenaam; hideSuggestions(); runScan(c.weergavenaam); }
 
 // ---- Scan runner ----
+// ---- Lichtgewicht analytics: cookieless, niet-blocking, geen IP ----
+function track(event) {
+  try {
+    const url = `${API_BASE}/track?event=${encodeURIComponent(event)}`;
+    if (navigator.sendBeacon) navigator.sendBeacon(url);
+    else fetch(url, { method: 'GET', keepalive: true }).catch(() => {});
+  } catch (_) { /* analytics mag nooit stuk gaan */ }
+}
+// Initial page-load event (niet-kritiek, async)
+if (document.readyState === 'complete') track('page_load');
+else window.addEventListener('load', () => track('page_load'));
+
+
 async function runScan(query) {
+  track('scan');
   $error.hidden = true;
   $result.hidden = true;
-  $loading.hidden = false;
+  $loading.hidden = true;   // we gebruiken skeleton i.p.v. simpele spinner
+
+  // Skeleton: toon direct de sectie-structuur met placeholder-blokken.
+  // Geeft user feedback dat de scan loopt + demonstreert de UI-structuur
+  // voordat de data er is (feels ~2x sneller psychologisch).
+  renderSkeleton();
+
+  // Progress-indicator: update elke seconde met stap + verstreken tijd.
+  const startTs = Date.now();
+  const steps = [
+    [0, 'Adres opzoeken…'],
+    [2, 'Pand- en WOZ-gegevens…'],
+    [4, 'Buurt- en leefbaarometer…'],
+    [6, 'Veiligheid en luchtkwaliteit…'],
+    [8, 'Klimaat en demografie…'],
+    [10, 'Voorzieningen en onderwijs…'],
+    [12, 'Rapport samenstellen…'],
+  ];
+  const progressEl = document.getElementById('skel-progress');
+  const progressInterval = setInterval(() => {
+    const elapsed = (Date.now() - startTs) / 1000;
+    const current = steps.slice().reverse().find(([t]) => elapsed >= t) || steps[0];
+    if (progressEl) {
+      progressEl.innerHTML = `<span class="skel-dot"></span>${current[1]} <span class="skel-sec">${Math.round(elapsed)}s</span>`;
+    }
+  }, 400);
+
   try {
     const r = await fetch(`${API_BASE}/scan?q=${encodeURIComponent(query)}`);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
       throw new Error(j.detail || `API error ${r.status}`);
     }
+    clearInterval(progressInterval);
+    hideSkeleton();
     render(await r.json());
   } catch (e) {
+    clearInterval(progressInterval);
+    hideSkeleton();
     $error.textContent = `Kon adres niet scannen: ${e.message}`;
     $error.hidden = false;
-  } finally {
-    $loading.hidden = true;
   }
+}
+
+function renderSkeleton() {
+  let host = document.getElementById('skeleton');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'skeleton';
+    host.className = 'skeleton';
+    host.innerHTML = `
+      <div id="skel-progress" class="skel-progress">
+        <span class="skel-dot"></span>Adres opzoeken…
+      </div>
+      <div class="skel-card">
+        <div class="skel-bar skel-bar-title"></div>
+        <div class="skel-bar skel-bar-sub"></div>
+      </div>
+      <div class="skel-card skel-map"></div>
+      <div class="skel-card">
+        <div class="skel-bar skel-bar-h3"></div>
+        <div class="skel-grid">
+          <div><div class="skel-bar skel-bar-label"></div><div class="skel-bar skel-bar-value"></div></div>
+          <div><div class="skel-bar skel-bar-label"></div><div class="skel-bar skel-bar-value"></div></div>
+          <div><div class="skel-bar skel-bar-label"></div><div class="skel-bar skel-bar-value"></div></div>
+          <div><div class="skel-bar skel-bar-label"></div><div class="skel-bar skel-bar-value"></div></div>
+        </div>
+      </div>
+      <div class="skel-card">
+        <div class="skel-bar skel-bar-h3"></div>
+        <div class="skel-grid">
+          <div><div class="skel-bar skel-bar-label"></div><div class="skel-bar skel-bar-value"></div></div>
+          <div><div class="skel-bar skel-bar-label"></div><div class="skel-bar skel-bar-value"></div></div>
+          <div><div class="skel-bar skel-bar-label"></div><div class="skel-bar skel-bar-value"></div></div>
+          <div><div class="skel-bar skel-bar-label"></div><div class="skel-bar skel-bar-value"></div></div>
+        </div>
+      </div>
+    `;
+    const main = document.getElementById('result') || document.body;
+    main.parentNode.insertBefore(host, main);
+  }
+  host.hidden = false;
+}
+
+function hideSkeleton() {
+  const host = document.getElementById('skeleton');
+  if (host) host.hidden = true;
 }
 
 // ---- Render helper: consistent field-block met chip + ref + betekenis ----
@@ -400,6 +487,7 @@ function renderPrintKnop(adres) {
 async function _handlePdfDownload(e) {
   const btn = e.currentTarget;
   if (btn.classList.contains('loading') || btn.classList.contains('done')) return;
+  track('pdf_download');
   const q = btn.dataset.q;
   const filename = btn.dataset.filename;
   const labelEl = btn.querySelector('.btn-label');
