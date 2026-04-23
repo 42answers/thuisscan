@@ -103,20 +103,31 @@
   <script src="https://unpkg.com/maplibre-gl@4.5.0/dist/maplibre-gl.js" defer></script>
 </head>
 <body>
-  <header class="hero">
+  <!-- Skip-to-content link voor toetsenbord-gebruikers (verschijnt op TAB) -->
+  <a href="#main-content" class="skip-link">Direct naar zoekbalk</a>
+
+  <header class="hero" role="banner">
     <h1>Buurtscan</h1>
     <p class="subtitle">Eén adres. Alles wat je wil weten over je woning en buurt.</p>
 
-    <div class="search">
+    <div class="search" role="search">
+      <label for="q" class="visually-hidden">Voer een Nederlands adres in</label>
       <input
         id="q"
         type="search"
         placeholder="Damrak 1, Amsterdam"
         autocomplete="off"
-        aria-label="Adres"
+        autocapitalize="off"
+        spellcheck="false"
+        aria-label="Voer een Nederlands adres in"
+        aria-describedby="search-hint"
+        aria-autocomplete="list"
+        aria-controls="suggestions"
       />
-      <ul id="suggestions" role="listbox" hidden></ul>
+      <span id="search-hint" class="visually-hidden">Begin te typen voor adres-suggesties</span>
+      <ul id="suggestions" role="listbox" aria-label="Adres-suggesties" hidden></ul>
     </div>
+    <div id="main-content" tabindex="-1"></div>
   </header>
 
   <main id="result" hidden>
@@ -133,13 +144,13 @@
     </div>
 
     <!-- Kaart + pand-outline (met inline Street View / Satelliet toggle) -->
-    <section class="mapcard" id="s-map" hidden>
+    <section class="mapcard" id="s-map" hidden aria-label="Kaart van het adres">
       <!-- Toggle-bar: Google Maps (default) → Satelliet → Street View → Kadaster -->
-      <div class="map-tabs">
-        <button class="map-tab active" data-view="gmaps">🗺️ Google Maps</button>
-        <button class="map-tab" data-view="satellite">🛰️ Satelliet</button>
-        <button class="map-tab" data-view="streetview">📷 Street View</button>
-        <button class="map-tab" data-view="map">🏛️ Kadaster</button>
+      <div class="map-tabs" role="tablist" aria-label="Kaart-weergave kiezen">
+        <button class="map-tab active" data-view="gmaps"   role="tab" aria-selected="true"  type="button">🗺️ Google Maps</button>
+        <button class="map-tab"        data-view="satellite" role="tab" aria-selected="false" type="button">🛰️ Satelliet</button>
+        <button class="map-tab"        data-view="streetview" role="tab" aria-selected="false" type="button">📷 Street View</button>
+        <button class="map-tab"        data-view="map"     role="tab" aria-selected="false" type="button">🏛️ Kadaster</button>
       </div>
       <div class="map-viewport">
         <div id="map-gmaps" class="map-pane active"></div>

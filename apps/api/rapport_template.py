@@ -460,11 +460,11 @@ def render_cover():
 
         <div class="cover-maps">
           <figure>
-            <img src="{STREETMAP_SRC}" alt="OSM-kaart" />
+            <img src="{STREETMAP_SRC}" alt="Straatkaart van {html.escape(A.get('display_name','dit adres'))} via OpenStreetMap, met groene marker op het pand." loading="lazy" />
             <figcaption>STRAATKAART · OPENSTREETMAP</figcaption>
           </figure>
           <figure>
-            <img src="{PERCEEL_SRC}" alt="Kadaster perceel" />
+            <img src="{PERCEEL_SRC}" alt="Kadastrale kaart van perceel {(VERB.get('perceel') or {}).get('perceelnummer','')} bij {html.escape(A.get('display_name','dit adres'))} — perceel-grenzen, bebouwing en straatnamen volgens het Kadaster." loading="lazy" />
             <figcaption>KADASTRAAL PERCEEL · KADASTER</figcaption>
           </figure>
         </div>

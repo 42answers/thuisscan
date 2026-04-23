@@ -171,7 +171,71 @@ app.add_middleware(RateLimitMiddleware)
 
 @app.get("/health")
 async def health() -> dict:
+    """Lightweight health-check voor Fly.io load-balancer (elke 30s)."""
     return {"status": "ok"}
+
+
+@app.get("/health/full")
+async def health_full(token: str = Query("", description="ADMIN_TOKEN voor diepte-check")) -> dict:
+    """Diepte-monitoring voor admin: check alle externe deps + endpoint-tijden.
+
+    Beschermd met ADMIN_TOKEN omdat het externe API-calls triggert.
+    Geschikt voor uptime-services zoals Better Stack / UptimeRobot
+    (configureer met header X-Token of query ?token=).
+    """
+    admin_token = os.environ.get("ADMIN_TOKEN", "").strip()
+    if not admin_token:
+        raise HTTPException(status_code=503, detail="ADMIN_TOKEN niet gezet")
+    if token != admin_token:
+        raise HTTPException(status_code=401, detail="Ongeldig token")
+
+    import asyncio as _aio, time as _t
+    import httpx
+    checks: dict = {"timestamp": _t.time()}
+
+    async def _check(name, coro):
+        t0 = _t.time()
+        try:
+            await coro
+            checks[name] = {"ok": True, "ms": int((_t.time() - t0) * 1000)}
+        except Exception as e:
+            checks[name] = {"ok": False, "ms": int((_t.time() - t0) * 1000), "error": str(e)[:100]}
+
+    async def ping(url):
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.get(url)
+            r.raise_for_status()
+
+    await _aio.gather(
+        _check("pdok_locatieserver", ping("https://api.pdok.nl/bzk/locatieserver/search/v3_1/free?q=damrak&rows=1")),
+        _check("pdok_bag_wfs", ping("https://service.pdok.nl/lv/bag/wfs/v2_0?REQUEST=GetCapabilities&SERVICE=WFS")),
+        _check("cbs_kerncijfers", ping("https://opendata.cbs.nl/ODataApi/odata/85984NED?$top=1")),
+        _check("rivm_alo", ping("https://geodata.rivm.nl/geoserver/wms?REQUEST=GetCapabilities&SERVICE=WMS")),
+        _check("politie_open_data", ping("https://opendata.cbs.nl/ODataApi/odata/47022NED?$top=1")),
+        _check("kadaster_woz", ping("https://api.kadaster.nl/lvwoz/wozwaardeloket-api/v1")),
+        _check("openstreetmap_overpass", ping("https://overpass-api.de/api/status")),
+        _check("klimaateffectatlas", ping("https://services1.arcgis.com/HyT4U7EQLPYkQyhT/arcgis/rest/services?f=json")),
+        return_exceptions=True,
+    )
+    overall_ok = all(c.get("ok") for c in checks.values() if isinstance(c, dict) and "ok" in c)
+    return {"status": "ok" if overall_ok else "degraded", "checks": checks}
+
+
+@app.get("/health/uptime")
+async def health_uptime() -> dict:
+    """Publieke status-check (geen token, geen externe calls).
+
+    Voor Better Stack / UptimeRobot status-page als basic ping.
+    Returnt info zonder externe afhankelijkheden — altijd snel.
+    """
+    import time as _t
+    return {
+        "status": "ok",
+        "service": "buurtscan",
+        "version": "0.1.0",
+        "timestamp": _t.time(),
+        "uptime_hint": "200 = service draait; 5xx = down",
+    }
 
 
 # ===== Analytics =====
