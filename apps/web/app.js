@@ -372,9 +372,9 @@ function render(d) {
   $result.hidden = false;
 }
 
-// PDF-export knop — wijst naar /rapport.pdf (server-side gerenderde PDF
-// via headless Chromium). Klikken triggert direct een download.
-// Tweede knop: HTML-versie voor preview in browser (handig bij debug).
+// PDF-export knop — gebruikt fetch ipv <a download> zodat we een
+// spinner + voortgang-timer kunnen tonen tijdens de 25-70s wachttijd.
+// Tweede knop: HTML-preview in browser (instant, geen server-render).
 function renderPrintKnop(adres) {
   if (!adres) return;
   const host = document.getElementById('rapport-knop-host');
@@ -382,15 +382,85 @@ function renderPrintKnop(adres) {
   const q = encodeURIComponent(adres);
   const filename = `Buurtscan-${adres.replace(/[^a-zA-Z0-9]+/g, '-')}.pdf`;
   host.innerHTML = `
-    <a href="${API_BASE}/rapport.pdf?q=${q}" download="${filename}" class="rapport-knop"
-       title="PDF wordt gegenereerd (~20s) en download automatisch">
-      📄 Rapport als PDF
-    </a>
+    <button type="button" id="pdf-btn" class="rapport-knop"
+            data-q="${q}" data-filename="${filename}"
+            title="PDF wordt gegenereerd (~25-70s) en download automatisch">
+      <span class="btn-icon">📄</span><span class="btn-label">Rapport als PDF</span>
+    </button>
     <a href="${API_BASE}/rapport?q=${q}" target="_blank" rel="noopener" class="rapport-knop-secondary"
-       title="Bekijk rapport als webpagina">
+       title="Bekijk rapport als webpagina (geen download)">
       🔍 Preview in browser
     </a>
   `;
+  document.getElementById('pdf-btn').addEventListener('click', _handlePdfDownload);
+}
+
+// Click-handler voor PDF-knop. Start fetch, toont spinner + tijd-counter,
+// triggert download bij ontvangst, reset na 3s.
+async function _handlePdfDownload(e) {
+  const btn = e.currentTarget;
+  if (btn.classList.contains('loading') || btn.classList.contains('done')) return;
+  const q = btn.dataset.q;
+  const filename = btn.dataset.filename;
+  const labelEl = btn.querySelector('.btn-label');
+  const iconEl = btn.querySelector('.btn-icon');
+  const orig = { icon: iconEl.innerHTML, label: labelEl.textContent };
+
+  // → loading state
+  btn.classList.add('loading');
+  btn.disabled = true;
+  iconEl.innerHTML = '<span class="spinner"></span>';
+  labelEl.textContent = 'PDF wordt gemaakt…';
+
+  // Live tijd-counter zodat user ziet dat het werkt
+  const startTs = Date.now();
+  const timerInterval = setInterval(() => {
+    const elapsed = Math.round((Date.now() - startTs) / 1000);
+    labelEl.textContent = `PDF wordt gemaakt… ${elapsed}s`;
+  }, 1000);
+
+  try {
+    const r = await fetch(`${API_BASE}/rapport.pdf?q=${q}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const blob = await r.blob();
+
+    // Trigger download via blob-URL (werkt cross-browser)
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+
+    // → done state (3s zichtbaar als bevestiging)
+    clearInterval(timerInterval);
+    const sec = Math.round((Date.now() - startTs) / 1000);
+    btn.classList.remove('loading');
+    btn.classList.add('done');
+    iconEl.textContent = '✓';
+    labelEl.textContent = `Gedownload (${sec}s)`;
+    setTimeout(() => {
+      btn.classList.remove('done');
+      btn.disabled = false;
+      iconEl.innerHTML = orig.icon;
+      labelEl.textContent = orig.label;
+    }, 3000);
+  } catch (err) {
+    clearInterval(timerInterval);
+    btn.classList.remove('loading');
+    btn.classList.add('error');
+    iconEl.textContent = '⚠️';
+    labelEl.textContent = 'Fout — klik om opnieuw te proberen';
+    setTimeout(() => {
+      btn.classList.remove('error');
+      btn.disabled = false;
+      iconEl.innerHTML = orig.icon;
+      labelEl.textContent = orig.label;
+    }, 4000);
+    console.error('PDF-download faalde:', err);
+  }
 }
 
 function renderGrid(gridId, itemsHTML) {

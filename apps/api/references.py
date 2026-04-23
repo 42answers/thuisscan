@@ -733,11 +733,16 @@ def ref_totaal_misdrijven(per_1000: Optional[float]) -> Optional[Reference]:
     if per_1000 is None:
         return None
     nl = 40  # NL-gem 2024, ruwweg
-    if per_1000 < nl * 0.5:
+    # Strakkere drempels — 32% boven NL is GEEN "rond gemiddeld".
+    if per_1000 < nl * 0.6:        # < 24
         level, chip, msg = "good", "ruim onder NL-gemiddelde", "Rustige residentiële wijk."
-    elif per_1000 < nl * 1.5:
-        level, chip, msg = "good", "rond NL-gemiddelde", "Normaal stedelijk niveau."
-    elif per_1000 < nl * 3:
+    elif per_1000 < nl * 1.15:     # < 46
+        level, chip, msg = "good", "rond NL-gemiddelde", "Normaal Nederlandse niveau."
+    elif per_1000 < nl * 1.5:      # < 60
+        level, chip, msg = "neutral", "licht boven NL-gemiddelde", (
+            "Iets verhoogd; typisch voor stadsgebied met wat doorgaande functie."
+        )
+    elif per_1000 < nl * 3:        # < 120
         level, chip, msg = "warn", "boven NL-gemiddelde", (
             "Hoger dan gemiddeld; vaak door nabijheid van uitgaansgebied of station."
         )

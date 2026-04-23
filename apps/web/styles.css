@@ -1646,3 +1646,54 @@ main {
   white-space: nowrap;
 }
 .rapport-knop-secondary:hover { background: #f3f5f4; border-color: #1f4536; }
+
+/* PDF-knop states (loading / done / error) + spinner */
+button.rapport-knop {
+  font-family: inherit;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+button.rapport-knop:disabled {
+  cursor: progress;
+  opacity: 1; /* niet vervaagd; visueel state via background-kleur */
+}
+.rapport-knop.loading {
+  background: #4a6e62;
+  border-color: #4a6e62;
+  cursor: progress;
+}
+.rapport-knop.done {
+  background: #1d7a56;
+  border-color: #1d7a56;
+}
+.rapport-knop.error {
+  background: #a14a3a;
+  border-color: #a14a3a;
+  cursor: pointer;
+}
+.rapport-knop .btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.1em;
+}
+.rapport-knop .btn-label {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Spinner — wit, 12px, 0.8s rotatie */
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: rapport-spin 0.8s linear infinite;
+  box-sizing: border-box;
+  vertical-align: -2px;
+}
+@keyframes rapport-spin {
+  to { transform: rotate(360deg); }
+}

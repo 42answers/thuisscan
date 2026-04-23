@@ -200,6 +200,45 @@ def leeftijd_context(fijn):
     return "Buurt heeft " + " · ".join(delen) + "."
 
 
+def _geluid_stat(label, db_value, kind, default_msg):
+    """Geluid-stat met interpretatie obv dB-waarde en bron-type.
+    kind = 'trein' | 'vlieg' (verschillende drempels per bron)."""
+    if db_value is None or db_value == "—":
+        return stat(label, "—", source="RIVM · GEEN DATA")
+    try:
+        v = float(db_value)
+    except (TypeError, ValueError):
+        return stat(label, db_value, unit="dB Lden", source="RIVM")
+    # Drempels: < 40 dB = niet gemodelleerd (te laag voor RIVM-grid)
+    if v < 40:
+        chip_text = "geen hinder"
+        chip_lvl = "good"
+        bet = default_msg
+    elif v < 50:
+        chip_text = "nauwelijks hinder"
+        chip_lvl = "good"
+        bet = "Onder de typische hinder-drempel."
+    elif v < 55:
+        chip_text = "lichte hinder"
+        chip_lvl = "neutral"
+        bet = "Vergelijkbaar met rustig stedelijk gebied."
+    elif v < 65:
+        chip_text = "matige hinder"
+        chip_lvl = "warn"
+        bet = "Boven WHO-advies (53 dB) en EU-hinderdrempel (55 dB)."
+    else:
+        chip_text = "ernstige hinder"
+        chip_lvl = "warn"
+        bet = "Boven 65 dB — significante slaap- en gezondheidsoverlast."
+    fake_ref = {
+        "chip_text": chip_text,
+        "chip_level": chip_lvl,
+        "nl_gemiddelde": "23 dB (vlieg) · 35 dB (trein) · landelijk gem.",
+        "betekenis": bet,
+    }
+    return stat_with_ref(label, db_value, fake_ref, unit="dB Lden", source="RIVM · WHO 53 · EU 55")
+
+
 def opleiding_context(b):
     """Vergelijk wijk-opleidingsniveau met NL-gemiddelde (32/38/30)."""
     if not b: return ""
@@ -345,29 +384,28 @@ def gen_samenvatting_bullets():
             f"WOZ <strong>{euro(woz)}</strong> "
             f"(<strong>{euro(m2)} per m²</strong>){trend_str}."))
 
-    # BEREIKBAARHEID — namen tussen haakjes
+    # BEREIKBAARHEID — naam tussen haakjes ALLEEN als bekend (niet "?")
+    def _ber_part(items, type_filter, label):
+        """Render '<label> op X km (naam)' — naam alleen als beschikbaar."""
+        match = next((t for t in items if t.get("type") == type_filter), None)
+        if not match: return None
+        afstand = fmt_afstand(match.get("meters"))
+        nm = match.get("naam")
+        suffix = f" ({html.escape(nm)})" if nm else ""
+        return f"{label} op <strong>{afstand}</strong>{suffix}"
+
     transport = [v for v in (VOORZ.get("items") or []) if v.get("categorie") == "transport"]
-    trein = next((t for t in transport if t.get("type") == "treinstation"), None)
-    snelweg = next((t for t in transport if t.get("type") == "oprit_snelweg"), None)
-    bushalte = next((t for t in transport if t.get("type") == "bushalte"), None)
-    tram = next((t for t in transport if t.get("type") == "tramhalte"), None)
-    metro = next((t for t in transport if t.get("type") == "metro"), None)
     ber_parts = []
-    if trein:
-        nm = trein.get("naam") or "?"
-        ber_parts.append(f"trein op <strong>{fmt_afstand(trein.get('meters'))}</strong> ({html.escape(nm)})")
-    if metro:
-        nm = metro.get("naam") or "?"
-        ber_parts.append(f"metro op <strong>{fmt_afstand(metro.get('meters'))}</strong> ({html.escape(nm)})")
-    if tram:
-        nm = tram.get("naam") or "?"
-        ber_parts.append(f"tram op <strong>{fmt_afstand(tram.get('meters'))}</strong> ({html.escape(nm)})")
-    elif bushalte:
-        nm = bushalte.get("naam") or "?"
-        ber_parts.append(f"bushalte op <strong>{fmt_afstand(bushalte.get('meters'))}</strong> ({html.escape(nm)})")
-    if snelweg:
-        nm = snelweg.get("naam") or "?"
-        ber_parts.append(f"snelweg-oprit op <strong>{fmt_afstand(snelweg.get('meters'))}</strong> ({html.escape(nm)})")
+    for type_filter, label in [
+        ("treinstation", "trein"),
+        ("metro", "metro"),
+        ("tramhalte", "tram"),
+        ("bushalte", "bus"),     # NU NIET MEER elif: bus altijd ook tonen
+        ("oprit_snelweg", "snelweg-oprit"),
+    ]:
+        part = _ber_part(transport, type_filter, label)
+        if part:
+            ber_parts.append(part)
     if ber_parts:
         bullets.append(("BEREIK", " · ".join(ber_parts) + "."))
 
@@ -820,8 +858,8 @@ def render_veiligheid_lucht():
 
       <div class="grid-3">
         {stat_with_ref("Geluid wegverkeer", geluid_per.get("wegverkeer", "—"), (LK.get("geluid") or {}).get("ref"), unit="dB Lden", source="RIVM · WHO 53 · EU-HINDER 55")}
-        {stat("Geluid railverkeer", geluid_per.get("treinverkeer", "—"), unit="dB Lden", source="RIVM")}
-        {stat("Geluid vliegverkeer", geluid_per.get("vliegverkeer", "—"), unit="dB Lden", source="RIVM")}
+        {_geluid_stat("Geluid railverkeer", geluid_per.get("treinverkeer"), "trein", "Stille buurt qua spoor.")}
+        {_geluid_stat("Geluid vliegverkeer", geluid_per.get("vliegverkeer"), "vlieg", "Geen significante vliegtuiglast.")}
       </div>
 
       {pfoot()}
@@ -849,24 +887,29 @@ def render_klimaat_demografie():
         klasse = r.get("klasse")
         waarde = r.get("waarde")
         eenheid = r.get("eenheid")
-        display = ref.get("chip_text", "—").capitalize()
+        # Hoofd-cel: getal als beschikbaar, anders chip-text
         if waarde is not None:
             display = f"{waarde}&nbsp;{eenheid or ''}".strip()
         elif klasse is not None:
             display = ["—","Zeer laag","Laag","Middel","Hoog","Zeer hoog"][min(klasse, 5)]
+        else:
+            display = ref.get("chip_text", "—").capitalize()
+        # Chip met kleur erbij voor snelle scan
+        chip_html = chip(ref.get("chip_text", ""), ref.get("chip_level", "neutral")) if ref.get("chip_text") else ""
         rows.append(f"""
           <tr>
             <td><strong>{html.escape(label)}</strong></td>
-            <td>{display}</td>
+            <td>{display}&nbsp;{chip_html}</td>
             <td class="muted">{html.escape(ref.get("betekenis",""))}</td>
           </tr>
         """)
     if paalrot.get("ref"):
         ref = paalrot["ref"]
+        chip_html = chip(ref.get("chip_text",""), ref.get("chip_level","neutral"))
         rows.append(f"""
           <tr>
             <td><strong>Paalrot-risico (2050)</strong></td>
-            <td>{html.escape(ref.get("chip_text","—").capitalize())}</td>
+            <td>{html.escape(ref.get("chip_text","—").capitalize())}&nbsp;{chip_html}</td>
             <td class="muted">{html.escape(ref.get("betekenis",""))}</td>
           </tr>
         """)
@@ -1280,12 +1323,29 @@ def render_bereikbaarheid_bronnen():
     # Fallback uit voorzieningen-transport (BER.available was false)
     if not ber_blocks:
         transport = [v for v in VOORZ.get("items", []) if v.get("categorie") == "transport"]
+        # Sorteer op categorie-prioriteit: trein > metro > tram > bus > snelweg > rest
+        prio = {"treinstation": 1, "overstapstation": 2, "metro": 3, "tramhalte": 4,
+                "bushalte": 5, "oprit_snelweg": 6}
+        transport.sort(key=lambda v: (prio.get(v.get("type"), 9), v.get("meters", 9999)))
         for v in transport[:6]:
-            naam = v.get("naam") or v["label"]
+            naam = v.get("naam")
+            label = v["label"]
+            # Titel = "Type — Naam" (clikbaar als naam) of alleen "Type"
+            titel = f"{label} — {naam}" if naam else label
+            src = (
+                f"OSM · {v.get('source','OSM').upper()}"
+                if v.get("source") == "osm"
+                else "CBS-BUURTCIJFERS · GEEN NAAM BESCHIKBAAR"
+            )
             ber_blocks.append(stat(
-                f"{v['label']} — {naam}" if v.get("naam") else v['label'],
-                fmt_afstand(v.get("meters")),
-                source="OSM"))
+                titel, fmt_afstand(v.get("meters")), source=src))
+        # Voeg context-zin toe als ALLE items via CBS-fallback komen
+        if transport and all(v.get("source") == "cbs" for v in transport):
+            ber_blocks.append(
+                '<p class="bar-context" style="grid-column: 1 / -1;">'
+                'Namen niet beschikbaar — OSM-Overpass was niet bereikbaar bij deze scan; '
+                'CBS-buurtafstanden gebruikt als fallback.</p>'
+            )
 
     ber_html = ""
     while ber_blocks:

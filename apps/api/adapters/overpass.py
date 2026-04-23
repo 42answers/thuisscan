@@ -42,9 +42,11 @@ OVERPASS_FALLBACKS = [
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
 ]
-TIMEOUT_S = 12.0  # per endpoint; totaal max 3×12s = 36s worst case. Eerder was
-# 25s per endpoint = 75s totaal bij 3x fail — te traag. Cold queries in NL
-# duren typisch 5-10s; 12s is net boven de p99.
+TIMEOUT_S = 18.0  # per endpoint; totaal max 3×18s = 54s worst case.
+# Verhoogd van 12s naar 18s na observatie dat bij cold-start (Fly machine
+# net wakker, OSM Overpass-server net warmgelopen) 12s soms te kort is →
+# fallback naar CBS-buurtgemiddelden zonder POI-namen, wat het rapport
+# vervolgens als "Treinstation 2,5 km" zonder naam toont. 18s is comfort.
 
 # POI-definities: wat we zoeken in OSM + hoe we het in de UI tonen.
 # Elk tuple:
