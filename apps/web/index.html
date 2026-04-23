@@ -3,12 +3,100 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Buurtscan — Eén blik op je woning en buurt</title>
+
+  <!-- === BASIC SEO === -->
+  <title>Buurtscan — Volledig woning- en buurtrapport uit open data | Gratis</title>
+  <meta name="description" content="Buurtscan maakt in één blik een volledig rapport van je woning en buurt op basis van 22+ officiële Nederlandse open-data bronnen: WOZ, BAG, Leefbaarometer, criminaliteit, klimaatrisico, onderwijs, voorzieningen en verbouwmogelijkheden. Gratis PDF-download." />
+  <meta name="keywords" content="buurtscan, woning rapport, buurt rapport, WOZ waarde, leefbaarometer, klimaatrisico, bestemmingsplan, verbouwmogelijkheden, energielabel, BAG, kadaster, monumentenregister, huis kopen, buurt analyse, open data Nederland" />
+  <meta name="author" content="Buurtscan B.V." />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <link rel="canonical" href="https://buurtscan.com/" />
+
+  <!-- === OPEN GRAPH (Facebook, LinkedIn, WhatsApp) === -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Buurtscan" />
+  <meta property="og:title" content="Buurtscan — Volledig woning- en buurtrapport in één blik" />
+  <meta property="og:description" content="Genereer in 10 seconden een volledig rapport over een Nederlands adres: WOZ-waarde, buurtkwaliteit, criminaliteit, klimaatrisico's, voorzieningen, onderwijs en verbouwmogelijkheden. Gebaseerd op 22+ officiële open-data bronnen." />
+  <meta property="og:url" content="https://buurtscan.com/" />
+  <meta property="og:locale" content="nl_NL" />
+  <meta property="og:image" content="https://buurtscan.com/og-image.png" />
+  <meta property="og:image:alt" content="Buurtscan — voorbeeld van een buurtrapport" />
+
+  <!-- === TWITTER CARD === -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Buurtscan — Woning- en buurtrapport uit open data" />
+  <meta name="twitter:description" content="Volledig rapport over een Nederlands adres in 10 seconden. WOZ, leefbaarheid, criminaliteit, klimaat, onderwijs, verbouwmogelijkheden." />
+  <meta name="twitter:image" content="https://buurtscan.com/og-image.png" />
+
+  <!-- === THEME & APP === -->
+  <meta name="theme-color" content="#1f4536" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Buurtscan" />
+
+  <!-- === STRUCTURED DATA (JSON-LD) === -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebApplication",
+        "name": "Buurtscan",
+        "url": "https://buurtscan.com/",
+        "description": "Buurtscan genereert een volledig woning- en buurtrapport uit Nederlandse open-data bronnen voor elk adres in Nederland.",
+        "applicationCategory": "UtilityApplication",
+        "operatingSystem": "Any",
+        "inLanguage": "nl-NL",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "EUR"
+        },
+        "featureList": [
+          "WOZ-waarde en prijsontwikkeling",
+          "Leefbaarometer-score en sub-dimensies",
+          "Criminaliteitscijfers per buurt",
+          "Luchtkwaliteit en geluidsbelasting",
+          "Klimaatrisico's 2050 (KNMI-scenario's)",
+          "Demografie, huishoudens en politieke voorkeur",
+          "Voorzieningen en onderwijs in de buurt",
+          "Verbouwmogelijkheden en monumentenstatus",
+          "PDF-rapport downloaden"
+        ]
+      },
+      {
+        "@type": "Organization",
+        "name": "Buurtscan B.V.",
+        "url": "https://buurtscan.com/",
+        "email": "redactie@buurtscan.nl",
+        "areaServed": {
+          "@type": "Country",
+          "name": "Nederland"
+        }
+      }
+    ]
+  }
+  </script>
+
   <!-- Inline emoji-favicon: geen extra asset-request nodig, subtiel huisje -->
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🏠%3C/text%3E%3C/svg%3E" />
+
+  <!-- === CRITICAL CSS (inline voor instant first paint) === -->
+  <style>
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,"Inter","Helvetica Neue",sans-serif;color:#1a1a1a;background:#fafaf7;line-height:1.5;-webkit-font-smoothing:antialiased}
+    .hero{max-width:720px;margin:0 auto;padding:4rem 1.5rem 2rem;text-align:center}
+    .hero h1{font-size:2.5rem;margin:0 0 .25rem;letter-spacing:-.02em;font-weight:700}
+    .subtitle{color:#6b6b6b;font-size:1.1rem;margin:0 0 2rem}
+    .search{position:relative;max-width:520px;margin:0 auto}
+    .search input{width:100%;padding:.9rem 1.1rem;font-size:1.05rem;border:1px solid #e4e4e4;border-radius:10px;background:#fff;outline:none}
+  </style>
+
+  <!-- Main CSS (non-critical, maar snel dankzij 24u-cache op server) -->
   <link rel="stylesheet" href="styles.css" />
-  <!-- MapLibre GL JS voor de kaart (zelfde API als Mapbox, gratis, geen key) -->
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.5.0/dist/maplibre-gl.css" />
+
+  <!-- MapLibre GL JS — defer + preload naar CDN zodat kaart klaar is als user scant -->
+  <link rel="preconnect" href="https://unpkg.com" crossorigin />
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.5.0/dist/maplibre-gl.css" media="print" onload="this.media='all'" />
   <script src="https://unpkg.com/maplibre-gl@4.5.0/dist/maplibre-gl.js" defer></script>
 </head>
 <body>

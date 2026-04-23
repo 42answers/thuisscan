@@ -452,22 +452,80 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 if WEB_DIR.exists():
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
+    # Cache-headers strategie:
+    # - index.html: short cache (1 uur), valideren met etag
+    # - styles.css/app.js: 1 dag cache met must-revalidate
+    # - robots.txt/sitemap.xml: 1 dag
+    # Browsers krijgen 304 bij niet-veranderde files na deploys.
+    _STATIC_CACHE = "public, max-age=86400, must-revalidate"   # 24u
+    _HTML_CACHE = "public, max-age=3600, must-revalidate"      # 1u
+
     @app.get("/")
     async def serve_index() -> FileResponse:
-        return FileResponse(WEB_DIR / "index.html")
+        return FileResponse(
+            WEB_DIR / "index.html",
+            headers={"Cache-Control": _HTML_CACHE},
+        )
 
     @app.get("/styles.css")
     async def serve_css() -> FileResponse:
-        return FileResponse(WEB_DIR / "styles.css")
+        return FileResponse(
+            WEB_DIR / "styles.css",
+            headers={"Cache-Control": _STATIC_CACHE},
+        )
 
     @app.get("/app.js")
     async def serve_js() -> FileResponse:
-        # no-cache zodat browsers bij elke page-load de laatste JS fetchen.
-        # Bij een static site zou versioning (app.js?v=X) beter zijn, maar
-        # voor MVP is 'geen-cache' simpeler en merkt de gebruiker het niet.
         return FileResponse(
             WEB_DIR / "app.js",
-            headers={"Cache-Control": "no-cache, must-revalidate"},
+            headers={"Cache-Control": _STATIC_CACHE},
+        )
+
+    @app.get("/robots.txt")
+    async def serve_robots() -> Response:
+        """robots.txt — open voor indexering met sitemap-link."""
+        body = (
+            "User-agent: *\n"
+            "Allow: /\n"
+            "Disallow: /rapport\n"          # rapport-renders zijn dynamisch, geen SEO-waarde
+            "Disallow: /rapport.pdf\n"
+            "Disallow: /scan\n"             # JSON API
+            "Disallow: /verbouwing\n"
+            "Disallow: /klimaat\n"
+            "Disallow: /voorzieningen\n"
+            "Disallow: /bereikbaarheid\n"
+            "Disallow: /woz\n"
+            "Disallow: /lookup\n"
+            "Disallow: /suggest\n"
+            "Disallow: /pand-geometry\n"
+            "Disallow: /woning-extras\n"
+            "\n"
+            "Sitemap: https://buurtscan.com/sitemap.xml\n"
+        )
+        return Response(
+            content=body, media_type="text/plain",
+            headers={"Cache-Control": _STATIC_CACHE},
+        )
+
+    @app.get("/sitemap.xml")
+    async def serve_sitemap() -> Response:
+        """Minimale sitemap — homepage + about-pagina (toekomstig)."""
+        from datetime import date as _date
+        today = _date.today().isoformat()
+        body = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            '  <url>\n'
+            '    <loc>https://buurtscan.com/</loc>\n'
+            f'    <lastmod>{today}</lastmod>\n'
+            '    <changefreq>weekly</changefreq>\n'
+            '    <priority>1.0</priority>\n'
+            '  </url>\n'
+            '</urlset>\n'
+        )
+        return Response(
+            content=body, media_type="application/xml",
+            headers={"Cache-Control": _STATIC_CACHE},
         )
 
     @app.get("/config.js")

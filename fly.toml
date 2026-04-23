@@ -18,11 +18,14 @@ primary_region = 'ams'
 [http_service]
   internal_port = 8000
   force_https = true
-  # Na eerste deploy: machine mag slapen bij HTTP-idle (goedkoper).
-  # Wakker bij eerste request kost ~500ms cold-start.
-  auto_stop_machines = 'stop'
+  # ALTIJD-AAN: machine slaapt niet meer. Was eerder 'stop' met
+  # min_machines_running=0, gaf 30-40s cold TTFB bij eerste bezoeker —
+  # onaccept-baar voor een consumenten-website. Met always-on +
+  # Chromium pre-warm op startup is eerste paint <100ms.
+  # Kosten: ~$5,70/mnd voor shared-cpu-1x 1GB.
+  auto_stop_machines = 'off'
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
 
   [[http_service.checks]]
     interval = '30s'
