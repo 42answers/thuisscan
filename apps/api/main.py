@@ -19,10 +19,10 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from adapters import bag, pdok_locatie, static_maps
+from adapters import bag, pdok_locatie, static_maps, html_to_pdf
 import orchestrator
 import rapport_template
 
@@ -134,16 +134,10 @@ async def scan_endpoint(q: str = Query(..., min_length=3, description="Adres")) 
     return orchestrator.result_as_dict(result)
 
 
-@app.get("/rapport", response_class=HTMLResponse)
-async def rapport_endpoint(
-    q: str = Query(..., min_length=3, description="Adres-zoekterm"),
-) -> HTMLResponse:
-    """Print-ready HTML-rapport (8-13 A4-pagina's) voor één adres.
+async def _gather_rapport_data(q: str) -> tuple[dict, str]:
+    """Verzamel alle data + render HTML voor het rapport.
 
-    Haalt alle data parallel op en rendert via rapport_template.render_html.
-    Gebruiker kan in browser via Cmd+P / Ctrl+P naar PDF exporteren.
-
-    Query: ?q=Paramaribostraat+72-1+Amsterdam
+    Returnt (data_dict, html_string). Gedeeld door /rapport en /rapport.pdf.
     """
     import asyncio as _aio
 
@@ -165,7 +159,6 @@ async def rapport_endpoint(
     gemeentecode = a.get("gemeentecode") or ""
     buurtcode = a.get("buurtcode") or ""
 
-    # Parallel: alle lazy endpoints + 2 kaart-images
     woz_t = orchestrator.fetch_woz_pand(bag_vbo_id) if bag_vbo_id else _aio.sleep(0, {"available": False})
     voorz_t = orchestrator.fetch_voorzieningen(lat=lat, lon=lon, buurtcode=buurtcode, gemeentecode=gemeentecode)
     klim_t = orchestrator.fetch_klimaat_section(lat, lon, rd_x, rd_y) if (lat and rd_x) else _aio.sleep(0, {"available": False})
@@ -181,21 +174,58 @@ async def rapport_endpoint(
 
     woz, voorz, klim, ber, extras, verb, streetmap_png, perceel_png = await _aio.gather(
         woz_t, voorz_t, klim_t, ber_t, extras_t, verb_t, streetmap_t, perceel_t,
-        return_exceptions=False,
     )
 
-    html_str = rapport_template.render_html({
-        "scan": scan_dict,
-        "woz": woz,
-        "voorz": voorz,
-        "klim": klim,
-        "ber": ber,
-        "extras": extras,
-        "verb": verb,
-        "streetmap_png": streetmap_png,
-        "perceel_png": perceel_png,
-    })
+    data = {
+        "scan": scan_dict, "woz": woz, "voorz": voorz, "klim": klim,
+        "ber": ber, "extras": extras, "verb": verb,
+        "streetmap_png": streetmap_png, "perceel_png": perceel_png,
+    }
+    html_str = rapport_template.render_html(data)
+    return data, html_str
+
+
+@app.get("/rapport", response_class=HTMLResponse)
+async def rapport_endpoint(
+    q: str = Query(..., min_length=3, description="Adres-zoekterm"),
+) -> HTMLResponse:
+    """Print-ready HTML-rapport voor een adres (preview/print-mode).
+
+    Voor PDF-download: gebruik /rapport.pdf.
+    """
+    _data, html_str = await _gather_rapport_data(q)
     return HTMLResponse(content=html_str, status_code=200)
+
+
+@app.get("/rapport.pdf")
+async def rapport_pdf_endpoint(
+    q: str = Query(..., min_length=3, description="Adres-zoekterm"),
+) -> Response:
+    """Server-side gerenderde PDF (Playwright + Chromium). Direct download."""
+    _data, html_str = await _gather_rapport_data(q)
+    try:
+        pdf_bytes = await html_to_pdf.render_html_to_pdf(html_str)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"PDF-render faalde: {e}") from e
+
+    # Filename uit adres
+    a = _data["scan"].get("adres", {})
+    label = (a.get("display_name") or "rapport").replace(",", "").replace(" ", "-")
+    filename = f"Buurtscan-{label}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.on_event("shutdown")
+async def _shutdown_html_to_pdf():
+    """Sluit Chromium netjes af."""
+    try:
+        await html_to_pdf.shutdown()
+    except Exception:
+        pass
 
 
 @app.get("/woz")

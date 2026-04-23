@@ -15,6 +15,12 @@ WORKDIR /app
 COPY apps/api/requirements.txt /tmp/requirements.txt
 RUN pip install -r /tmp/requirements.txt
 
+# Playwright Chromium — vereist voor /rapport.pdf endpoint.
+# `--with-deps` installeert ook libnss3, libatk1.0-0, etc. (~150 MB).
+# We zetten BROWSERS_PATH expliciet zodat het pad voorspelbaar is.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+RUN python -m playwright install --with-deps chromium
+
 # Applicatie-code
 COPY apps/api  /app/apps/api
 COPY apps/web  /app/apps/web

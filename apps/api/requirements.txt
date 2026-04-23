@@ -12,3 +12,7 @@ anthropic>=0.50,<1.0
 # Pillow voor static_maps.py — OSM-tile stitching + Kadaster WMS marker
 # overlay bij /rapport endpoint. ~10 MB extra in image.
 Pillow>=10.0,<12.0
+# Playwright voor server-side PDF-rendering (/rapport.pdf endpoint).
+# Chromium-binary wordt door Dockerfile geinstalleerd via
+# `playwright install --with-deps chromium` (~150 MB image bloat).
+playwright>=1.45,<2.0

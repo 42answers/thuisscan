@@ -32,5 +32,8 @@ primary_region = 'ams'
     path = '/health'
 
 [[vm]]
+  # 1GB nodig voor headless Chromium in /rapport.pdf endpoint.
+  # Een lege Chromium-instance neemt ~150MB; per page-render piekt
+  # naar ~300-500MB. 512MB was te krap → OOM bij PDF-genereren.
   size = 'shared-cpu-1x'
-  memory = '512mb'
+  memory = '1gb'

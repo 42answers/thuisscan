@@ -372,25 +372,23 @@ function render(d) {
   $result.hidden = false;
 }
 
-// PDF-export knop — opent /rapport endpoint in nieuwe tab. Gebruiker gebruikt
-// Cmd+P (macOS) of Ctrl+P (Windows) om naar PDF te printen.
+// PDF-export knop — wijst naar /rapport.pdf (server-side gerenderde PDF
+// via headless Chromium). Klikken triggert direct een download.
+// Tweede knop: HTML-versie voor preview in browser (handig bij debug).
 function renderPrintKnop(adres) {
   if (!adres) return;
-  let host = document.getElementById('rapport-knop-host');
-  if (!host) {
-    // Plaats vlak boven r-address (titel-blok)
-    const titleBlock = document.querySelector('.r-title-block') || document.getElementById('r-address');
-    if (!titleBlock) return;
-    host = document.createElement('div');
-    host.id = 'rapport-knop-host';
-    host.className = 'rapport-knop-host';
-    titleBlock.parentNode.insertBefore(host, titleBlock);
-  }
-  const url = `${API_BASE}/rapport?q=${encodeURIComponent(adres)}`;
+  const host = document.getElementById('rapport-knop-host');
+  if (!host) return;
+  const q = encodeURIComponent(adres);
+  const filename = `Buurtscan-${adres.replace(/[^a-zA-Z0-9]+/g, '-')}.pdf`;
   host.innerHTML = `
-    <a href="${url}" target="_blank" rel="noopener" class="rapport-knop"
-       title="Open volledig rapport in nieuwe tab — gebruik Cmd+P / Ctrl+P om naar PDF te printen">
-      📄 Volledig rapport openen <span class="knop-hint">(print naar PDF)</span>
+    <a href="${API_BASE}/rapport.pdf?q=${q}" download="${filename}" class="rapport-knop"
+       title="PDF wordt gegenereerd (~20s) en download automatisch">
+      📄 Rapport als PDF
+    </a>
+    <a href="${API_BASE}/rapport?q=${q}" target="_blank" rel="noopener" class="rapport-knop-secondary"
+       title="Bekijk rapport als webpagina">
+      🔍 Preview in browser
     </a>
   `;
 }
