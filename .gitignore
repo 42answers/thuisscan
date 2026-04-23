@@ -16,6 +16,9 @@ __pycache__/
 apps/api/cache/
 !apps/api/cache/.gitkeep
 
+# Generated rapport-artefacten (HTML/PDF exports)
+apps/api/reports/
+
 # OS
 .DS_Store
 

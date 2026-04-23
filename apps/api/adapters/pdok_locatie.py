@@ -40,6 +40,8 @@ class AddressMatch:
     gemeentecode: Optional[str]
     postcode: Optional[str]
     huisnummer: Optional[str]
+    huisnummertoevoeging: Optional[str]  # bv "1" (1e verdieping Amsterdam)
+    huisletter: Optional[str]             # bv "A", "B"
     lat: float  # WGS84
     lon: float  # WGS84
     rd_x: float  # Rijksdriehoek (EPSG:28992) voor RIVM/Klimaat-WMS
@@ -95,6 +97,9 @@ async def lookup(address_id: str) -> AddressMatch:
         gemeentecode=doc.get("gemeentecode"),
         postcode=doc.get("postcode"),
         huisnummer=str(doc.get("huisnummer", "")) if doc.get("huisnummer") else None,
+        huisnummertoevoeging=(str(doc.get("huisnummertoevoeging"))
+            if doc.get("huisnummertoevoeging") is not None else None),
+        huisletter=doc.get("huisletter"),
         lat=lat,
         lon=lon,
         rd_x=rd_x,

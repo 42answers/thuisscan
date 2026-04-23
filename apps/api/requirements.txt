@@ -3,3 +3,9 @@ uvicorn[standard]==0.32.0
 httpx==0.27.2
 pydantic==2.9.2
 python-dotenv==1.0.1
+# Shapely 2.x bundelt GEOS in de manylinux wheel — geen libgeos-dev op base image.
+# Gebruikt voor polygoon-operaties in verbouwing.py (perceel − pand = achtererf).
+shapely==2.0.6
+# Anthropic SDK voor BP-tekst extractie (Haiku) in bp_extractor.py.
+# Valideert naar gestructureerd JSON; fallback naar None als API-key ontbreekt.
+anthropic>=0.50,<1.0
