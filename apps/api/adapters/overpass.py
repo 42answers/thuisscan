@@ -36,17 +36,35 @@ import httpx
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 # Fallback-endpoints: bij rate-limit / timeout van hoofdserver proberen we
 # deze. Zelfde Overpass-QL specificatie, andere servers (meer capaciteit
-# wereldwijd). Volgorde = prio.
+# wereldwijd). Volgorde = prio. Gemixt: hoofdserver → EU-mirrors →
+# wereldwijd → community.
 OVERPASS_FALLBACKS = [
-    "https://overpass-api.de/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter",
-    "https://overpass.private.coffee/api/interpreter",
+    "https://overpass-api.de/api/interpreter",          # hoofdserver (DE)
+    "https://overpass.kumi.systems/api/interpreter",    # EU-mirror (DE)
+    "https://overpass.osm.ch/api/interpreter",          # CH-mirror (Zwitserland)
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",  # RU-mirror
+    "https://overpass.private.coffee/api/interpreter",  # community (DE)
 ]
-TIMEOUT_S = 18.0  # per endpoint; totaal max 3×18s = 54s worst case.
+TIMEOUT_S = 18.0  # per endpoint; totaal max 5×18s = 90s worst case.
 # Verhoogd van 12s naar 18s na observatie dat bij cold-start (Fly machine
 # net wakker, OSM Overpass-server net warmgelopen) 12s soms te kort is →
 # fallback naar CBS-buurtgemiddelden zonder POI-namen, wat het rapport
 # vervolgens als "Treinstation 2,5 km" zonder naam toont. 18s is comfort.
+
+# Exponential backoff bij rate-limit (429/503/506) op ZELFDE endpoint.
+# Strategie: 1× retry op zelfde URL met groeiende wait; pas bij blijvend
+# rate-limit door naar volgende endpoint. Voorkomt dat we 5 servers
+# tegelijk hameren bij een algemene Overpass-piek.
+RATE_LIMIT_BACKOFF_S = (2, 6)  # 2s, 6s — totaal max 8s wachten per endpoint
+
+# Cache: per (lat-grid, lon-grid) op 100m precisie, TTL 7 dagen.
+# POI's muteren nauwelijks (winkel sluit, kerk verhuist niet). Cache hit
+# bespaart een Overpass-call EN beschermt tegen rate-limit-issues.
+# In-memory dict — overleeft niet deploys, maar dat is OK want bij deploy
+# is alles toch wakker te krijgen via natuurlijk verkeer.
+_POI_CACHE: dict[str, tuple[float, list]] = {}   # key → (timestamp, POI-lijst)
+_POI_CACHE_TTL_S = 7 * 24 * 3600
+_GRID_M = 100  # 100m precisie = ~0.001° = lat afronden op 3 decimalen
 
 # POI-definities: wat we zoeken in OSM + hoe we het in de UI tonen.
 # Elk tuple:
@@ -147,16 +165,16 @@ def _build_query(lat: float, lon: float) -> str:
 
 
 async def _overpass_post_with_retry(query: str) -> Optional[dict]:
-    """Robuuste Overpass-POST met retry + endpoint-fallback.
+    """Robuuste Overpass-POST met endpoint-fallback + per-endpoint backoff.
 
     Strategie:
-      1. Probeer primary endpoint. 200 → klaar.
-      2. Bij 406/429/503 (rate-limit, overload) → backoff + volgende endpoint.
-      3. Bij timeout → volgende endpoint.
-      4. Als ALLE endpoints falen → None (caller valt terug op CBS).
-
-    Logt status per attempt naar stderr zodat we in Fly-logs zien wat er
-    gebeurt; voorheen faalde de call stil.
+      1. Voor elk endpoint: probeer 1×, bij rate-limit (429/503/506) wacht
+         RATE_LIMIT_BACKOFF_S[0] sec en probeer 1× opnieuw, dan nog 1×
+         na BACKOFF_S[1] sec. Pas dan door naar volgende endpoint.
+         → geeft de server adem voor we 'm afschrijven (vermijdt cascade-
+         falen waarbij we 5 servers tegelijk hameren).
+      2. Bij netwerk-timeout/connect-error: meteen volgend endpoint.
+      3. Bij ALLE endpoints fail: None → caller valt terug op CBS.
     """
     headers = {
         "User-Agent": "buurtscan/1.0 (nl-NL) contact:vandeweijer@gmail.com",
@@ -165,31 +183,70 @@ async def _overpass_post_with_retry(query: str) -> Optional[dict]:
     last_error = None
     async with httpx.AsyncClient(timeout=TIMEOUT_S, headers=headers) as client:
         for attempt, url in enumerate(OVERPASS_FALLBACKS):
-            try:
-                resp = await client.post(url, data={"data": query})
-            except (httpx.TimeoutException, httpx.ConnectError, httpx.RemoteProtocolError) as e:
-                last_error = f"{type(e).__name__}:{e}"
-                print(f"[overpass] attempt {attempt+1} ({url}): network {last_error}", file=sys.stderr)
-                continue
-            if resp.status_code == 200:
+            # Maximaal 1 + len(BACKOFF_S) pogingen op zelfde URL
+            backoff_schedule = [0.0] + list(RATE_LIMIT_BACKOFF_S)
+            for sub_attempt, wait_s in enumerate(backoff_schedule):
+                if wait_s > 0:
+                    print(f"[overpass] {url} → rate-limit, wacht {wait_s}s en retry…", file=sys.stderr)
+                    await asyncio.sleep(wait_s)
                 try:
-                    return resp.json()
-                except Exception as e:
-                    last_error = f"parse:{e}"
-                    print(f"[overpass] attempt {attempt+1}: 200 but parse fail {e}", file=sys.stderr)
-                    continue
-            # 406/429 = rate-limit; 503 = overload; 502/504 = gateway
-            if resp.status_code in (406, 429, 503, 502, 504):
-                last_error = f"status {resp.status_code}"
-                print(f"[overpass] attempt {attempt+1} ({url}): {resp.status_code} (rate-limit/overload)", file=sys.stderr)
-                # Korte backoff voordat we naar het volgende endpoint gaan
-                await asyncio.sleep(0.5 * (attempt + 1))
-                continue
-            # Andere fouten: niet retrying, maar wel loggen
-            last_error = f"status {resp.status_code}: {resp.text[:100]}"
-            print(f"[overpass] attempt {attempt+1} ({url}): {last_error}", file=sys.stderr)
-    print(f"[overpass] ALL endpoints failed: {last_error}", file=sys.stderr)
+                    resp = await client.post(url, data={"data": query})
+                except (httpx.TimeoutException, httpx.ConnectError, httpx.RemoteProtocolError) as e:
+                    last_error = f"{type(e).__name__}:{e}"
+                    print(f"[overpass] attempt {attempt+1}.{sub_attempt+1} ({url}): network {last_error}", file=sys.stderr)
+                    break  # netwerk-issue → meteen volgend endpoint
+                if resp.status_code == 200:
+                    try:
+                        return resp.json()
+                    except Exception as e:
+                        last_error = f"parse:{e}"
+                        print(f"[overpass] attempt {attempt+1}: 200 but parse fail {e}", file=sys.stderr)
+                        break  # parse-fail → volgend endpoint
+                # 429/503/506 = rate-limit / quota; retry met backoff op zelfde endpoint
+                if resp.status_code in (429, 503, 506):
+                    last_error = f"status {resp.status_code}"
+                    print(f"[overpass] attempt {attempt+1}.{sub_attempt+1} ({url}): {resp.status_code} (rate-limit)", file=sys.stderr)
+                    continue  # → wacht in volgende iteratie van backoff_schedule
+                # 406/502/504 = niet-rate-limit-error: meteen door naar volgend endpoint
+                if resp.status_code in (406, 502, 504):
+                    last_error = f"status {resp.status_code}"
+                    print(f"[overpass] attempt {attempt+1} ({url}): {resp.status_code} (gateway/server)", file=sys.stderr)
+                    break
+                # Andere status-codes: log en volgend endpoint
+                last_error = f"status {resp.status_code}: {resp.text[:100]}"
+                print(f"[overpass] attempt {attempt+1} ({url}): {last_error}", file=sys.stderr)
+                break
+    print(f"[overpass] ALL {len(OVERPASS_FALLBACKS)} endpoints failed: {last_error}", file=sys.stderr)
     return None
+
+
+def _grid_key(lat: float, lon: float) -> str:
+    """Cache-sleutel: lat/lon afgerond op ~100m grid.
+
+    Zelfde grid-cel = zelfde POI's (POI's verhuizen niet binnen 100m).
+    1 graad lat ≈ 111km, dus 100m = 0.0009° → afronden op 3 decimalen.
+    """
+    return f"{round(lat, 3)},{round(lon, 3)}"
+
+
+def _cache_get(lat: float, lon: float) -> Optional[list]:
+    """In-memory cache lookup, returnt list[POI] of None als verlopen/leeg."""
+    import time
+    key = _grid_key(lat, lon)
+    hit = _POI_CACHE.get(key)
+    if not hit:
+        return None
+    ts, pois = hit
+    if time.time() - ts > _POI_CACHE_TTL_S:
+        _POI_CACHE.pop(key, None)
+        return None
+    return pois
+
+
+def _cache_set(lat: float, lon: float, pois: list) -> None:
+    """Schrijf naar cache. Geen size-limit; bij honderden grids = paar MB."""
+    import time
+    _POI_CACHE[_grid_key(lat, lon)] = (time.time(), pois)
 
 
 async def fetch_poi_nearby(lat: float, lon: float) -> list[POI]:
@@ -198,7 +255,30 @@ async def fetch_poi_nearby(lat: float, lon: float) -> list[POI]:
     Retourneert een lijst POI's, gesorteerd op afstand (dichtbij → ver).
     Per type tonen we NIET alle hits — de orchestrator kiest de dichtstbijzijnde
     per type (anders zie je bv. 20 cafes).
+
+    Met 7-dagen-cache per 100m-grid: tweede scan binnen dezelfde
+    grid-cel = instant return zonder Overpass-call. Beschermt tegen
+    rate-limit én bespaart latency.
     """
+    # Cache hit?
+    cached = _cache_get(lat, lon)
+    if cached is not None:
+        # Re-bereken afstanden met EXACTE coords (cache is per-grid maar
+        # adres is een specifiek punt binnen die grid — afstanden kunnen
+        # paar tientallen meters verschillen tussen 2 adressen in zelfde cel).
+        # POI-coords zijn al opgeslagen, dus haversine opnieuw is goedkoop.
+        out: list[POI] = []
+        for p in cached:
+            new_m = int(_haversine_m(lat, lon, p.lat, p.lon))
+            out.append(POI(
+                key=p.key, label=p.label, categorie=p.categorie, emoji=p.emoji,
+                naam=p.naam, meters=new_m, km=round(new_m / 1000, 1),
+                lat=p.lat, lon=p.lon,
+            ))
+        out.sort(key=lambda x: x.meters)
+        print(f"[overpass] cache HIT voor grid {_grid_key(lat, lon)} ({len(out)} POIs)", file=sys.stderr)
+        return out
+
     query = _build_query(lat, lon)
     data = await _overpass_post_with_retry(query)
     if data is None:
@@ -258,6 +338,12 @@ async def fetch_poi_nearby(lat: float, lon: float) -> list[POI]:
             continue
         seen_keys.add(p.key)
         out.append(p)
+
+    # Schrijf naar cache (7d TTL per 100m grid). Volgende scan in dezelfde
+    # cel = instant return zonder Overpass-call. Beschermt rate-limit én
+    # versnelt vervolg-scans van dezelfde buurt.
+    _cache_set(lat, lon, out)
+    print(f"[overpass] cache STORE voor grid {_grid_key(lat, lon)} ({len(out)} POIs)", file=sys.stderr)
     return out
 
 
