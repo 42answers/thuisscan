@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from adapters import bag, pdok_locatie, static_maps, html_to_pdf, analytics
+from adapters import payments_db, mollie, email_sender
 import orchestrator
 import rapport_template
 
@@ -278,6 +279,242 @@ async def stats_endpoint(
     return analytics.load_summary()
 
 
+@app.get("/admin/sales", response_class=HTMLResponse)
+async def admin_sales_dashboard(
+    token: str = Query("", description="Admin-token uit env ADMIN_TOKEN"),
+    fmt: str = Query("html", regex="^(html|json)$",
+                     description="'html' (browser-friendly) of 'json' (API/scripts)"),
+) -> Response:
+    """Verkoop-dashboard: omzet, recente paid, top adressen, status-breakdown.
+
+    Beveiligd met dezelfde ADMIN_TOKEN als /stats. Twee output-formats:
+      - html (default): direct in browser bekijken
+      - json:           voor scripts/automation
+    """
+    admin_token = os.environ.get("ADMIN_TOKEN", "").strip()
+    if not admin_token:
+        raise HTTPException(status_code=503, detail="ADMIN_TOKEN niet gezet op de server")
+    if not token or token != admin_token:
+        raise HTTPException(status_code=401, detail="Ongeldig of ontbrekend token")
+
+    summary = payments_db.stats_summary()
+    test_mode = mollie.is_test_mode() if mollie.is_configured() else None
+    mollie_state = (
+        "TEST-mode (geen echt geld)" if test_mode is True
+        else "LIVE-mode (echt geld!)" if test_mode is False
+        else "niet geconfigureerd"
+    )
+
+    if fmt == "json":
+        return _json_response({
+            "summary": summary,
+            "mollie_state": mollie_state,
+        })
+
+    return HTMLResponse(content=_admin_sales_html(summary, mollie_state))
+
+
+def _json_response(payload: dict) -> Response:
+    """Kleine helper — sommige hosts schrijven JSON met escapes die we
+    niet willen in een dashboard-context. Hier kort en zonder ASCII-escape."""
+    import json as _json
+    return Response(
+        content=_json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+        media_type="application/json",
+    )
+
+
+def _admin_sales_html(summary: dict, mollie_state: str) -> str:
+    """Render een minimal-fuss HTML-dashboard. Geen externe assets, alles inline."""
+    import html as _h
+    per_status = summary.get("per_status", {}) or {}
+    omzet = summary.get("omzet_eur", 0) or 0
+    totaal = summary.get("totaal_betaald", 0) or 0
+    top = summary.get("top_adressen", []) or []
+    recent = summary.get("recent", []) or []
+
+    # Status-breakdown rows
+    status_rows = []
+    for status_name in ("paid", "pending", "refunded", "expired"):
+        s = per_status.get(status_name, {"n": 0, "cents_total": 0})
+        status_rows.append(
+            f"<tr><td>{status_name}</td><td>{s.get('n', 0)}</td>"
+            f"<td>€&nbsp;{(s.get('cents_total', 0) or 0) / 100:.2f}</td></tr>"
+        )
+    # Catch-all voor andere statussen die we niet expliciet noemen
+    for status_name, s in per_status.items():
+        if status_name not in ("paid", "pending", "refunded", "expired"):
+            status_rows.append(
+                f"<tr><td>{_h.escape(status_name)}</td><td>{s.get('n', 0)}</td>"
+                f"<td>€&nbsp;{(s.get('cents_total', 0) or 0) / 100:.2f}</td></tr>"
+            )
+    status_html = "".join(status_rows) or '<tr><td colspan="3"><em>geen data</em></td></tr>'
+
+    top_html = "".join(
+        f"<tr><td>{_h.escape(t.get('adres', ''))}</td><td>{t.get('n', 0)}×</td></tr>"
+        for t in top
+    ) or '<tr><td colspan="2"><em>nog niets verkocht</em></td></tr>'
+
+    recent_html = "".join(
+        f"<tr>"
+        f"<td><code>{_h.escape(r.get('token_prefix', ''))}</code></td>"
+        f"<td>{_h.escape(r.get('adres', ''))}</td>"
+        f"<td>{_h.escape(r.get('email', '—'))}</td>"
+        f"<td>€&nbsp;{(r.get('eur', 0) or 0):.2f}</td>"
+        f"<td>{_h.escape((r.get('paid_at') or '')[:16].replace('T', ' '))}</td>"
+        f"<td>{r.get('downloads', 0)}×</td>"
+        f"<td>{_h.escape((r.get('valid_until') or '')[:10])}</td>"
+        f"</tr>"
+        for r in recent
+    ) or '<tr><td colspan="7"><em>nog geen betaalde rapporten</em></td></tr>'
+
+    mollie_class = (
+        "badge-warn" if "LIVE" in mollie_state
+        else "badge-ok" if "TEST" in mollie_state
+        else "badge-neutral"
+    )
+
+    # Pre-compute KPI-waardes — vermijdt complexe expressies in f-string
+    pending_n  = (per_status.get("pending")  or {}).get("n", 0)
+    refunded_n = (per_status.get("refunded") or {}).get("n", 0)
+    admin_token_for_link = os.environ.get("ADMIN_TOKEN", "").strip()
+
+    return f"""<!DOCTYPE html>
+<html lang="nl"><head>
+<meta charset="utf-8"><title>Sales-dashboard · Buurtscan admin</title>
+<meta name="robots" content="noindex,nofollow">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+* {{ box-sizing: border-box; margin: 0; padding: 0; }}
+body {{
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  background: #fafaf7; color: #1a1a1a; line-height: 1.5;
+  padding: 2rem 1.5rem; max-width: 1100px; margin: 0 auto;
+}}
+h1 {{
+  font-size: 1.6rem; font-weight: 600;
+  letter-spacing: -0.01em; margin-bottom: 0.4rem;
+}}
+.sub {{ color: #6b6b6b; font-size: 0.9rem; margin-bottom: 1.6rem; }}
+.badge {{
+  display: inline-block; padding: 0.18rem 0.55rem;
+  border-radius: 3px; font-size: 0.75rem;
+  font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+}}
+.badge-ok {{ background: #e4f4eb; color: #1d7a56; }}
+.badge-warn {{ background: #fbe8e1; color: #a14a3a; }}
+.badge-neutral {{ background: #ececec; color: #5d5d5d; }}
+.kpis {{
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.8rem; margin: 1.5rem 0 2rem;
+}}
+.kpi {{
+  background: #fff; border: 1px solid #e4e4e4; border-radius: 10px;
+  padding: 1rem 1.2rem;
+}}
+.kpi .label {{
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
+  color: #6b6b6b; margin-bottom: 0.3rem;
+}}
+.kpi .value {{
+  font-size: 1.6rem; font-weight: 600; letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}}
+section {{
+  background: #fff; border: 1px solid #e4e4e4; border-radius: 10px;
+  padding: 1.2rem 1.4rem; margin-bottom: 1.2rem;
+}}
+section h2 {{
+  font-size: 1.05rem; font-weight: 600; margin-bottom: 0.8rem;
+}}
+table {{
+  width: 100%; border-collapse: collapse;
+  font-size: 0.92rem;
+}}
+th, td {{
+  padding: 0.5rem 0.7rem; text-align: left;
+  border-bottom: 1px solid #f0f0ee;
+  vertical-align: top;
+}}
+tr:last-child td {{ border-bottom: none; }}
+th {{
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em;
+  color: #6b6b6b; font-weight: 600; background: #fafaf7;
+}}
+td code {{
+  font-family: "SF Mono", Menlo, monospace; font-size: 0.82rem;
+  background: #f3f3f0; padding: 0.1rem 0.4rem; border-radius: 3px;
+}}
+.muted {{ color: #6b6b6b; font-size: 0.85rem; }}
+em {{ color: #6b6b6b; font-style: normal; }}
+.refresh-hint {{
+  font-size: 0.78rem; color: #8a8a8a; margin-top: 1.4rem; text-align: center;
+}}
+@media (max-width: 700px) {{
+  .recent-table {{ overflow-x: auto; }}
+  .recent-table table {{ min-width: 720px; }}
+}}
+</style>
+</head><body>
+
+<h1>Sales-dashboard <span class="badge {mollie_class}">{_h.escape(mollie_state)}</span></h1>
+<p class="sub">Realtime cijfers uit <code>payments_db</code> · alleen jij ziet dit (token-beveiligd).</p>
+
+<div class="kpis">
+  <div class="kpi">
+    <div class="label">Omzet (paid)</div>
+    <div class="value">€&nbsp;{omzet:.2f}</div>
+  </div>
+  <div class="kpi">
+    <div class="label">Aantal betaald</div>
+    <div class="value">{totaal}</div>
+  </div>
+  <div class="kpi">
+    <div class="label">Pending</div>
+    <div class="value">{pending_n}</div>
+  </div>
+  <div class="kpi">
+    <div class="label">Refunded</div>
+    <div class="value">{refunded_n}</div>
+  </div>
+</div>
+
+<section>
+  <h2>Status-breakdown</h2>
+  <table>
+    <thead><tr><th>Status</th><th>Aantal</th><th>Som (€)</th></tr></thead>
+    <tbody>{status_html}</tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Top-10 meest verkochte adressen</h2>
+  <table>
+    <thead><tr><th>Adres</th><th>Aantal</th></tr></thead>
+    <tbody>{top_html}</tbody>
+  </table>
+</section>
+
+<section class="recent-table">
+  <h2>Laatste 20 betaalde rapporten</h2>
+  <table>
+    <thead><tr>
+      <th>Token</th><th>Adres</th><th>E-mail</th><th>€</th>
+      <th>Paid at</th><th>Downloads</th><th>Valid until</th>
+    </tr></thead>
+    <tbody>{recent_html}</tbody>
+  </table>
+</section>
+
+<p class="refresh-hint">
+  Refresh deze pagina voor verse cijfers ·
+  <a href="?token={_h.escape(admin_token_for_link)}&amp;fmt=json"
+     style="color:#1f4536">JSON-versie</a>
+</p>
+
+</body></html>"""
+
+
 @app.get("/suggest")
 async def suggest_endpoint(
     q: str = Query(..., min_length=2, description="Gedeeltelijk adres"),
@@ -514,6 +751,301 @@ async def rapport_pdf_endpoint(
             "X-Timing": ",".join(f"{k}={v}s" for k, v in timing.items()),
         },
     )
+
+
+@app.on_event("startup")
+async def _startup_init_db():
+    """Maak SQLite payments-tabel aan als nog niet bestaat."""
+    try:
+        payments_db.init_db()
+        print("[startup] payments DB ready", flush=True)
+    except Exception as e:
+        print(f"[startup] payments DB init failed: {e}", flush=True)
+
+
+# ===============================================================
+# PAYMENT FLOW (Mollie + magic-link)
+# ===============================================================
+from pydantic import BaseModel as _BaseModel, EmailStr as _EmailStr
+
+class CheckoutRequest(_BaseModel):
+    adres: str
+    email: _EmailStr
+
+
+def _public_base_url(request: Request) -> str:
+    """Bouw publieke URL op basis van request — gebruikt voor Mollie redirects."""
+    # Als achter Cloudflare/Fly proxy: prefereer X-Forwarded-Proto/Host
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    host = request.headers.get("x-forwarded-host") or request.url.netloc
+    # Productie: forceer https + canonical buurtscan.com
+    if "buurtscan" in host:
+        return "https://buurtscan.com"
+    return f"{proto}://{host}"
+
+
+@app.post("/checkout")
+async def checkout_endpoint(payload: CheckoutRequest, request: Request) -> dict:
+    """Start een Mollie payment voor één rapport.
+
+    Flow:
+      1. Frontend POST {adres, email} hier
+      2. Wij maken pending-rij in DB → krijgen token
+      3. Mollie create_payment met onze callback URL + token in metadata
+      4. Returnen checkout_url naar frontend → user redirect
+    """
+    if not mollie.is_configured():
+        raise HTTPException(status_code=503,
+            detail="Betaal-provider niet ingesteld (MOLLIE_API_KEY ontbreekt)")
+
+    # IP voor abuse-detect (alleen hash opgeslagen, geen IP zelf)
+    ip = (request.headers.get("fly-client-ip")
+          or request.headers.get("cf-connecting-ip")
+          or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+          or (request.client.host if request.client else None))
+
+    # 1. Pending-rij + token
+    token = payments_db.create_pending(
+        adres_query=payload.adres,
+        email=payload.email,
+        ip=ip,
+        amount_cents=499,
+    )
+
+    # 2. Mollie payment
+    base = _public_base_url(request)
+    redirect = f"{base}/r/{token}/wachtkamer"  # Mollie stuurt user hierheen na betaling
+    webhook = f"{base}/checkout/webhook"
+    payment = await mollie.create_payment(
+        amount_cents=499,
+        description=f"Buurtscan rapport - {payload.adres[:80]}",
+        redirect_url=redirect,
+        webhook_url=webhook,
+        metadata={"token": token, "adres": payload.adres[:120]},
+    )
+    if not payment:
+        raise HTTPException(status_code=502, detail="Kon Mollie-betaling niet starten")
+
+    # 3. Koppel payment-id aan onze token
+    payments_db.attach_mollie_payment(token, payment["id"])
+
+    # Analytics: checkout-start
+    analytics.track(event="checkout_start", path=request.url.path)
+
+    return {
+        "ok": True,
+        "checkout_url": payment["checkout_url"],
+        "token": token,
+        "test_mode": mollie.is_test_mode(),
+    }
+
+
+@app.post("/checkout/webhook")
+async def checkout_webhook(request: Request) -> Response:
+    """Mollie webhook — POST met payment-id in form-body.
+
+    Mollie roept ons aan na elke status-wijziging. Wij MOETEN bij Mollie
+    de actuele status opvragen (kunnen niet vertrouwen op webhook-body).
+    """
+    form = await request.form()
+    payment_id = form.get("id")
+    if not payment_id:
+        return Response(status_code=400, content="Missing id")
+
+    payment = await mollie.get_payment(payment_id)
+    if not payment:
+        return Response(status_code=200, content="ok")  # negeer onbekende payments
+
+    status = payment.get("status")
+    if status == "paid":
+        # Markeer betaald in DB
+        row = payments_db.mark_paid(payment_id)
+        if row:
+            # Stuur magic-link mail
+            base = _public_base_url(request)
+            magic_url = f"{base}/r/{row['token']}"
+            await email_sender.send_magic_link(
+                to_email=row["email"],
+                adres=row["adres_query"],
+                magic_url=magic_url,
+                valid_until=row["valid_until"],
+                bedrag_eur=row["amount_cents"] / 100,
+            )
+            analytics.track(event="payment_paid")
+    elif status in ("expired", "failed", "canceled"):
+        payments_db.mark_failed(payment_id, status)
+        analytics.track(event=f"payment_{status}")
+
+    # Mollie verwacht 200 als ack
+    return Response(status_code=200, content="ok")
+
+
+@app.get("/r/{token}/wachtkamer")
+async def magic_link_wachtkamer(token: str) -> HTMLResponse:
+    """Landing-pagina ná Mollie checkout, vóór de mail binnen is.
+
+    Mollie stuurt user hier ongeacht uitkomst. Wij checken status:
+    - pending → 'Wacht op bevestiging…' met auto-refresh
+    - paid → redirect naar /r/<token>
+    - expired/failed → 'Betaling niet doorgegaan'
+    """
+    valid, reason, row = payments_db.is_valid(token)
+    if valid:
+        # Direct doorsturen naar het rapport
+        return HTMLResponse(
+            content=f'<meta http-equiv="refresh" content="0; url=/r/{token}">'
+                    f'<p>Betaling bevestigd! Doorsturen…</p>',
+            status_code=200,
+        )
+    if reason == "pending":
+        # Mollie heeft ons nog niet gewebhookt, maar user is er al
+        return HTMLResponse(content=_wachtkamer_html(token, row), status_code=200)
+    # Failed / expired
+    return HTMLResponse(content=_betaling_mislukt_html(reason), status_code=200)
+
+
+@app.get("/r/{token}", response_class=HTMLResponse)
+async def magic_link_view(token: str, request: Request) -> HTMLResponse:
+    """Magic-link → toon volledig rapport als token geldig."""
+    valid, reason, row = payments_db.is_valid(token)
+    if not valid:
+        return HTMLResponse(content=_token_error_html(reason), status_code=403)
+
+    payments_db.increment_download(token)
+    analytics.track(event="report_view")
+
+    # Genereer rapport (cached 15 min — als email-mailing en click binnen die
+    # tijd zit, is alles instant). Hergebruik _gather_rapport_data.
+    _data, html_str, _timing = await _gather_rapport_data(row["adres_query"])
+    # Inject paid-flag zodat app.js _IS_PAID_VIEW true is en geen paywall
+    # laat zien + de PDF-download-knop met token toont.
+    html_str = _inject_paid_flag(html_str, token)
+    return HTMLResponse(content=html_str)
+
+
+def _inject_paid_flag(html: str, token: str) -> str:
+    """Plak een <script>-tag in <head> die window.__buurtscan_paid + token zet.
+
+    Token is URL-safe base64 (alleen [A-Za-z0-9_-]), maar we json-escapen
+    voor zekerheid. Idempotent: roept geen kwaad als <head> ontbreekt
+    (dan blijft HTML ongewijzigd — frontend valt terug op default OFF-flag).
+    """
+    import json as _json
+    snippet = (
+        f'<script>'
+        f'window.__buurtscan_paid=true;'
+        f'window.__buurtscan_token={_json.dumps(token)};'
+        f'</script>'
+    )
+    # Zoek case-insensitief naar </head> en injecteer er net vóór.
+    lower = html.lower()
+    idx = lower.rfind("</head>")
+    if idx == -1:
+        # Geen </head>? Probeer na <head> (open-tag).
+        open_idx = lower.find("<head>")
+        if open_idx == -1:
+            return html  # geen head, frontend werkt zonder flag (OFF)
+        insert_at = open_idx + len("<head>")
+        return html[:insert_at] + snippet + html[insert_at:]
+    return html[:idx] + snippet + html[idx:]
+
+
+@app.get("/r/{token}/pdf")
+async def magic_link_pdf(token: str) -> Response:
+    """Magic-link PDF-download. Onbeperkt binnen 7 dagen."""
+    valid, reason, row = payments_db.is_valid(token)
+    if not valid:
+        return Response(status_code=403, content=_token_error_html(reason),
+                        media_type="text/html")
+
+    payments_db.increment_download(token)
+    analytics.track(event="report_pdf")
+
+    # Aparte cache-namespace 'paid:' zodat free /rapport.pdf en paid /r/.../pdf
+    # niet door elkaar lopen — anders zou een eerder gecached free-PDF (zonder
+    # paid-flag in HTML) een paid-user kunnen serveren met blur erin zodra de
+    # globale paywall-flag straks aan staat.
+    cache_key = "paid:" + _cache_key(row["adres_query"])
+    pdf_hit = _PDF_CACHE.get(cache_key)
+    if pdf_hit and (_time.time() - pdf_hit[0]) < _PDF_TTL_S:
+        return Response(
+            content=pdf_hit[1],
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{pdf_hit[2]}"'},
+        )
+
+    data, html_str, _timing = await _gather_rapport_data(row["adres_query"])
+    # Zelfde paid-flag injectie als bij /r/{token} — anders blurt applyPaywall
+    # in de Playwright-render zodra de globale flag straks aan gaat.
+    html_str = _inject_paid_flag(html_str, token)
+    pdf_bytes = await html_to_pdf.render_html_to_pdf(html_str)
+    a = data["scan"].get("adres", {})
+    label = (a.get("display_name") or "rapport").replace(",", "").replace(" ", "-")
+    filename = f"Buurtscan-{label}.pdf"
+    _PDF_CACHE[cache_key] = (_time.time(), pdf_bytes, filename)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _wachtkamer_html(token: str, row: Optional[dict]) -> str:
+    adres = (row or {}).get("adres_query", "je adres")
+    return f"""<!DOCTYPE html><html lang="nl"><head><meta charset="utf-8">
+<title>Betaling wordt verwerkt - Buurtscan</title>
+<meta http-equiv="refresh" content="5; url=/r/{token}/wachtkamer">
+<style>body{{font-family:-apple-system,Helvetica,sans-serif;max-width:520px;margin:6rem auto;padding:0 1.5rem;text-align:center;color:#1a1a1a}}
+h1{{font-family:Georgia,serif;font-size:2rem;letter-spacing:-0.01em;font-weight:400}}
+em{{color:#1f4536}}
+.spinner{{width:32px;height:32px;border:3px solid #e8e6e0;border-top-color:#1f4536;border-radius:50%;animation:spin 1s linear infinite;margin:2rem auto}}
+@keyframes spin{{to{{transform:rotate(360deg)}}}}</style></head>
+<body><div class="spinner"></div><h1>Even <em>wachten</em>…</h1>
+<p>We verwerken je betaling voor <strong>{adres}</strong>.</p>
+<p style="color:#6b6b6b;font-size:.9rem">Dit duurt meestal 5-15 seconden.<br>
+Je krijgt zo automatisch je rapport te zien én een mail met de link.</p></body></html>"""
+
+
+def _betaling_mislukt_html(reason: str) -> str:
+    return f"""<!DOCTYPE html><html lang="nl"><head><meta charset="utf-8">
+<title>Betaling niet doorgegaan - Buurtscan</title>
+<style>body{{font-family:-apple-system,sans-serif;max-width:520px;margin:6rem auto;padding:0 1.5rem;text-align:center;color:#1a1a1a}}
+h1{{font-family:Georgia,serif;font-size:2rem;letter-spacing:-0.01em;font-weight:400}}
+em{{color:#a14a3a}}
+a.btn{{display:inline-block;margin-top:1.5rem;padding:.75rem 1.5rem;background:#1f4536;color:#fff;border-radius:6px;text-decoration:none;font-weight:500}}</style></head>
+<body><h1>Betaling <em>niet doorgegaan</em></h1>
+<p>Status: {reason}. Er is geen geld afgeschreven.</p>
+<a href="/" class="btn">← Terug naar Buurtscan</a></body></html>"""
+
+
+def _token_error_html(reason: Optional[str]) -> str:
+    titles = {
+        "unknown": "Link onbekend",
+        "pending": "Betaling nog niet bevestigd",
+        "expired_time": "Link verlopen",
+        "expired_status": "Link niet langer geldig",
+        "refunded": "Aankoop is gerefund",
+    }
+    msgs = {
+        "unknown": "Deze link bestaat niet (meer). Check de link in de e-mail.",
+        "pending": "We wachten nog op bevestiging van Mollie. Probeer over een paar seconden opnieuw.",
+        "expired_time": "Je 7-daagse toegangsperiode is voorbij. Koop een nieuw rapport om opnieuw toegang te krijgen.",
+        "expired_status": "Deze toegang is ingetrokken. Mail redactie@buurtscan.nl als je denkt dat dit fout is.",
+        "refunded": "Voor deze bestelling is geld teruggestort. Toegang is daarmee vervallen.",
+    }
+    title = titles.get(reason or "", "Geen toegang")
+    msg = msgs.get(reason or "", "Onbekende status.")
+    return f"""<!DOCTYPE html><html lang="nl"><head><meta charset="utf-8">
+<title>{title} - Buurtscan</title>
+<style>body{{font-family:-apple-system,sans-serif;max-width:520px;margin:6rem auto;padding:0 1.5rem;text-align:center;color:#1a1a1a}}
+h1{{font-family:Georgia,serif;font-size:2rem;letter-spacing:-0.01em;font-weight:400}}
+em{{color:#a14a3a}}
+a.btn{{display:inline-block;margin-top:1.5rem;padding:.75rem 1.5rem;background:#1f4536;color:#fff;border-radius:6px;text-decoration:none;font-weight:500}}</style></head>
+<body><h1>{title}</h1><p>{msg}</p>
+<a href="/" class="btn">→ Naar Buurtscan</a></body></html>"""
+
+
+# ===============================================================
 
 
 @app.on_event("startup")

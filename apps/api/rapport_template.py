@@ -99,6 +99,42 @@ def euro(v):
     if v is None: return "—"
     return f"€&nbsp;{int(v):,}".replace(",", ".")
 
+
+def _fmt_top_pct(top_pct):
+    """Empirisch percentiel → leesbare 'Top X% van Nederland' tekst.
+
+    Spiegel van formatTopPct() in apps/web/app.js. None / >50% geeft
+    leeg (= dan toont de cover liever 'onder NL-gem').
+    """
+    if top_pct is None:
+        return ""
+    try:
+        p = float(top_pct)
+    except (TypeError, ValueError):
+        return ""
+    if p >= 50:
+        return ""    # onderkant — niet als "top" formuleren
+    if p < 0.5:
+        return "Top &lt;1% van Nederland"
+    if p < 1:
+        return "Top 1% van Nederland"
+    return f"Top {round(p)}% van Nederland"
+
+
+def _render_balans_waarschuwing(text, severity):
+    """Render de sub-balans-waarschuwing in PDF — twee severity-stijlen."""
+    if not text:
+        return ""
+    import html as _h
+    icon = "⚠" if severity == "strong" else "ℹ"
+    cls = "callout-strong" if severity == "strong" else "callout-mild"
+    label = "Let op" if severity == "strong" else "Nuance"
+    return (
+        f'<div class="callout {cls}">'
+        f'<strong>{icon} {label}:</strong> {_h.escape(text)}'
+        f'</div>'
+    )
+
 def fmt_pct(v, signed=True):
     if v is None: return "—"
     sign = "+" if v > 0 and signed else ""
@@ -362,27 +398,48 @@ def gen_samenvatting_bullets():
             f"{karakter.capitalize()} uit <strong>{bj}</strong> "
             f"van <strong>{opp} m²</strong> in <strong>{html.escape(leef_buurt_naam)}</strong>."))
 
-    # LEEFBAAROMETER
+    # LEEFBAAROMETER — toon klasse + empirisch percentiel ("Top X% van NL").
+    # De klasse 1-9 is rechtsscheef (klasse 9 = top 13% van NL, niet top 1%);
+    # daarom de percentiel-context erbij voor eerlijkheid.
     if leef_score:
         verdict = (
             "ruim boven het Nederlandse gemiddelde" if leef_score >= 7
             else "rond het Nederlandse gemiddelde" if leef_score == 5
             else "onder het Nederlandse gemiddelde"
         )
+        top_pct = COVER.get("top_pct_nl") if COVER.get("available") else None
+        top_pct_str = _fmt_top_pct(top_pct)
+        ctx = f" — <strong>{top_pct_str}</strong>" if top_pct_str else ""
         bullets.append(("BUURT",
             f"Leefbaarometer-score <strong>{leef_score} van 9</strong> ({leef_label or '—'}) "
-            f"— {verdict}."))
+            f"— {verdict}{ctx}."))
 
-    # WOZ + m²-prijs + trend
+    # WOZ + m²-prijs + trend + laatste 3 peiljaren expliciet
+    # We tonen niet alleen de huidige waarde, maar benoemen ook de laatste 3
+    # peiljaren met hun jaartal — een puntmeting verbergt of een buurt al jaren
+    # stijgt, of net dit jaar plotseling steeg na een vlakke periode.
     if woz and opp:
         m2 = round(woz / opp)
         trend_str = ""
         if woz_trend is not None:
             richting = "stijgt" if woz_trend > 0 else ("daalt" if woz_trend < 0 else "blijft stabiel")
             trend_str = f"; waarde {richting} <strong>{fmt_pct(woz_trend, signed=False)} per jaar</strong>"
+        # Laatste 3 peiljaren — historie is nieuwste eerst, we draaien om naar
+        # oud → nieuw zodat de pijl-richting natuurlijk leest.
+        historie = WOZ.get("historie") or []
+        laatste_3 = list(reversed(historie[:3]))
+        hist_str = ""
+        if len(laatste_3) >= 2:
+            chunks = [
+                f"<strong>{(h.get('peildatum') or '')[:4]}</strong> {euro(h.get('waarde_eur'))}"
+                for h in laatste_3
+                if h.get("peildatum") and h.get("waarde_eur") is not None
+            ]
+            if chunks:
+                hist_str = f"<br><span class=\"sub\">Laatste {len(chunks)} peiljaren: {' → '.join(chunks)}</span>"
         bullets.append(("WAARDE",
             f"WOZ <strong>{euro(woz)}</strong> "
-            f"(<strong>{euro(m2)} per m²</strong>){trend_str}."))
+            f"(<strong>{euro(m2)} per m²</strong>){trend_str}.{hist_str}"))
 
     # BEREIKBAARHEID — naam tussen haakjes ALLEEN als bekend (niet "?")
     def _ber_part(items, type_filter, label):
@@ -655,6 +712,9 @@ def render_wijk_karakter():
     dims = leef.get("dimensies", []) if leef else []
     by_key = {d["key"]: d for d in dims}
     waarschuwing = leef.get("waarschuwing")
+    waarschuwing_severity = leef.get("waarschuwing_severity")  # 'mild' | 'strong' | None
+    top_pct = leef.get("top_pct_nl")
+    top_pct_str = _fmt_top_pct(top_pct)
 
     # Schaal-visualisatie 1-9
     if leef_score:
@@ -714,13 +774,13 @@ def render_wijk_karakter():
       <div class="leef-hero">
         <div class="leef-score">{leef_score or '—'}</div>
         <div class="leef-info">
-          <div class="leef-label">{html.escape(leef_label.capitalize())}</div>
+          <div class="leef-label">{html.escape(leef_label.capitalize())}{(' · <strong>' + top_pct_str + '</strong>') if top_pct_str else ''}</div>
           <div class="source">Direct rondom het adres (±100&nbsp;m) · Buurt <strong>{html.escape(leef_buurt_naam)}</strong> · Peiljaar 2024</div>
           {scale_html}
         </div>
       </div>
 
-      {f'<div class="callout callout-neutral"><strong>Let op:</strong> {html.escape(waarschuwing)}</div>' if waarschuwing else ''}
+      {_render_balans_waarschuwing(waarschuwing, waarschuwing_severity)}
 
       <div class="kicker mt-s mb-s">SUB-DIMENSIES (1=zwak · 9=top)</div>
       <div class="grid-3">
@@ -1708,6 +1768,9 @@ html, body {
   font-size: 9.5pt; border-left: 2px solid var(--accent);
 }
 .callout-neutral { background: #f8f7f3; }
+.callout-mild   { background: #fdf5e6; border-left-color: #d9a441; color: #5a4215; }
+.callout-strong { background: #fbe8e1; border-left: 3px solid var(--warn); color: #6a2818; }
+.callout-strong strong { color: #6a2818; }
 
 /* Trend blocks */
 .trend-block {

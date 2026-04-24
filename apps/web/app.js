@@ -457,99 +457,318 @@ function render(d) {
   setText('p-bereikbaarheid', findProv(provs, 'bereikbaarheid'));
 
   $result.hidden = false;
+
+  // Paywall: bedek alle premium secties + voeg betaal-card toe
+  // (alleen op publieke scan; bij _IS_PAID_VIEW slaat de functie zichzelf over)
+  applyPaywall(d.adres.display_name);
 }
 
-// PDF-export knop — gebruikt fetch ipv <a download> zodat we een
-// spinner + voortgang-timer kunnen tonen tijdens de 25-70s wachttijd.
-// Tweede knop: HTML-preview in browser (instant, geen server-render).
+// PAID-MODE: backend zet window.__buurtscan_paid = true op /r/<token>-pages.
+// Op publieke /scan-pages staat dat niet → toon checkout-knop ipv PDF-knop.
+const _IS_PAID_VIEW = typeof window !== 'undefined' && window.__buurtscan_paid === true;
+
+// PAYWALL FEATURE-FLAG — staat standaard UIT zodat de live-site normaal werkt
+// terwijl we de paywall in parallel afbouwen. Drie manieren om aan te zetten:
+//   1. URL-param ?paywall=1   → tijdelijk in jouw browser (jij kan testen)
+//   2. localStorage flag      → blijvend in jouw browser (handig voor dev)
+//   3. const _PAYWALL_DEFAULT_ON = true → globaal voor iedereen (bij go-live)
+// Wanneer alles af is + Mollie-keys gezet → flip _PAYWALL_DEFAULT_ON op true,
+// deploy, klaar. Tot die tijd zien gebruikers de gewone PDF-knop.
+const _PAYWALL_DEFAULT_ON = false;
+const _PAYWALL_ENABLED = (function () {
+  if (typeof window === 'undefined') return false;
+  try {
+    const u = new URLSearchParams(window.location.search);
+    if (u.get('paywall') === '1') return true;
+    if (u.get('paywall') === '0') return false;
+    if (window.localStorage && window.localStorage.getItem('buurtscan_paywall') === '1') return true;
+  } catch (_) { /* private mode etc. */ }
+  return _PAYWALL_DEFAULT_ON;
+})();
+if (typeof console !== 'undefined') {
+  console.info('[buurtscan] paywall:', _PAYWALL_ENABLED ? 'ON' : 'OFF (legacy free-PDF flow active)');
+}
+
 function renderPrintKnop(adres) {
   if (!adres) return;
   const host = document.getElementById('rapport-knop-host');
   if (!host) return;
-  const q = encodeURIComponent(adres);
-  const filename = `Buurtscan-${adres.replace(/[^a-zA-Z0-9]+/g, '-')}.pdf`;
-  host.innerHTML = `
-    <button type="button" id="pdf-btn" class="rapport-knop"
-            data-q="${q}" data-filename="${filename}"
-            title="PDF wordt gegenereerd (~25-70s) en download automatisch">
-      <span class="btn-icon">📄</span><span class="btn-label">Rapport als PDF</span>
-    </button>
-    <a href="${API_BASE}/rapport?q=${q}" target="_blank" rel="noopener" class="rapport-knop-secondary"
-       title="Bekijk rapport als webpagina (geen download)">
-      🔍 Preview in browser
-    </a>
-  `;
-  document.getElementById('pdf-btn').addEventListener('click', _handlePdfDownload);
+  if (_IS_PAID_VIEW) {
+    // Betaalde sessie — PDF-download via magic-link
+    const filename = `Buurtscan-${adres.replace(/[^a-zA-Z0-9]+/g, '-')}.pdf`;
+    const token = window.__buurtscan_token || '';
+    host.innerHTML = `
+      <button type="button" id="pdf-btn" class="rapport-knop"
+              data-token="${token}" data-filename="${filename}"
+              title="Download PDF (geldige link)">
+        <span class="btn-icon">📄</span><span class="btn-label">Rapport als PDF</span>
+      </button>
+    `;
+    document.getElementById('pdf-btn').addEventListener('click', _handlePdfDownloadPaid);
+  } else if (_PAYWALL_ENABLED) {
+    // Vrije scan + paywall AAN — checkout-knop
+    host.innerHTML = `
+      <button type="button" id="checkout-btn" class="rapport-knop"
+              data-adres="${adres.replace(/"/g, '&quot;')}"
+              title="Volledig rapport voor € 4,99 — link 7 dagen geldig in je mail">
+        <span class="btn-icon">📄</span>
+        <span class="btn-label">Volledig rapport — € 4,99</span>
+      </button>
+    `;
+    document.getElementById('checkout-btn').addEventListener('click', _openCheckoutModal);
+  } else {
+    // Vrije scan + paywall UIT (default) — legacy gratis PDF-download
+    const filename = `Buurtscan-${adres.replace(/[^a-zA-Z0-9]+/g, '-')}.pdf`;
+    host.innerHTML = `
+      <button type="button" id="pdf-btn" class="rapport-knop"
+              data-adres="${adres.replace(/"/g, '&quot;')}" data-filename="${filename}"
+              title="Download het volledige rapport als PDF">
+        <span class="btn-icon">📄</span><span class="btn-label">Rapport als PDF</span>
+      </button>
+    `;
+    document.getElementById('pdf-btn').addEventListener('click', _handlePdfDownloadFree);
+  }
 }
 
-// Click-handler voor PDF-knop. Start fetch, toont spinner + tijd-counter,
-// triggert download bij ontvangst, reset na 3s.
-async function _handlePdfDownload(e) {
+// Legacy free PDF-download (paywall UIT). Hits /rapport.pdf?q=<adres>.
+async function _handlePdfDownloadFree(e) {
   const btn = e.currentTarget;
   if (btn.classList.contains('loading') || btn.classList.contains('done')) return;
   track('pdf_download');
-  const q = btn.dataset.q;
+  const adres = btn.dataset.adres;
   const filename = btn.dataset.filename;
   const labelEl = btn.querySelector('.btn-label');
   const iconEl = btn.querySelector('.btn-icon');
   const orig = { icon: iconEl.innerHTML, label: labelEl.textContent };
-
-  // → loading state
-  btn.classList.add('loading');
-  btn.disabled = true;
+  btn.classList.add('loading'); btn.disabled = true;
   iconEl.innerHTML = '<span class="spinner"></span>';
   labelEl.textContent = 'PDF wordt gemaakt…';
-
-  // Live tijd-counter zodat user ziet dat het werkt
   const startTs = Date.now();
-  const timerInterval = setInterval(() => {
-    const elapsed = Math.round((Date.now() - startTs) / 1000);
-    labelEl.textContent = `PDF wordt gemaakt… ${elapsed}s`;
+  const timer = setInterval(() => {
+    labelEl.textContent = `PDF wordt gemaakt… ${Math.round((Date.now() - startTs) / 1000)}s`;
   }, 1000);
-
   try {
-    const r = await fetch(`${API_BASE}/rapport.pdf?q=${q}`);
+    const r = await fetch(`${API_BASE}/rapport.pdf?q=${encodeURIComponent(adres)}`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const blob = await r.blob();
-
-    // Trigger download via blob-URL (werkt cross-browser)
-    const blobUrl = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = blobUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
-
-    // → done state (3s zichtbaar als bevestiging)
-    clearInterval(timerInterval);
-    const sec = Math.round((Date.now() - startTs) / 1000);
-    btn.classList.remove('loading');
-    btn.classList.add('done');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    clearInterval(timer);
+    btn.classList.remove('loading'); btn.classList.add('done');
     iconEl.textContent = '✓';
-    labelEl.textContent = `Gedownload (${sec}s)`;
+    labelEl.textContent = `Gedownload (${Math.round((Date.now() - startTs) / 1000)}s)`;
     setTimeout(() => {
-      btn.classList.remove('done');
-      btn.disabled = false;
-      iconEl.innerHTML = orig.icon;
-      labelEl.textContent = orig.label;
+      btn.classList.remove('done'); btn.disabled = false;
+      iconEl.innerHTML = orig.icon; labelEl.textContent = orig.label;
     }, 3000);
   } catch (err) {
-    clearInterval(timerInterval);
-    btn.classList.remove('loading');
-    btn.classList.add('error');
+    clearInterval(timer);
+    btn.classList.remove('loading'); btn.classList.add('error');
     iconEl.textContent = '⚠️';
-    labelEl.textContent = 'Fout — klik om opnieuw te proberen';
+    labelEl.textContent = 'Fout — probeer opnieuw';
     setTimeout(() => {
-      btn.classList.remove('error');
-      btn.disabled = false;
-      iconEl.innerHTML = orig.icon;
-      labelEl.textContent = orig.label;
+      btn.classList.remove('error'); btn.disabled = false;
+      iconEl.innerHTML = orig.icon; labelEl.textContent = orig.label;
     }, 4000);
-    console.error('PDF-download faalde:', err);
   }
 }
+
+// PDF-download voor BETAALDE sessie via magic-link
+async function _handlePdfDownloadPaid(e) {
+  const btn = e.currentTarget;
+  if (btn.classList.contains('loading') || btn.classList.contains('done')) return;
+  track('pdf_download');
+  const token = btn.dataset.token;
+  const filename = btn.dataset.filename;
+  const labelEl = btn.querySelector('.btn-label');
+  const iconEl = btn.querySelector('.btn-icon');
+  const orig = { icon: iconEl.innerHTML, label: labelEl.textContent };
+  btn.classList.add('loading'); btn.disabled = true;
+  iconEl.innerHTML = '<span class="spinner"></span>';
+  labelEl.textContent = 'PDF wordt gemaakt…';
+  const startTs = Date.now();
+  const timer = setInterval(() => {
+    labelEl.textContent = `PDF wordt gemaakt… ${Math.round((Date.now() - startTs) / 1000)}s`;
+  }, 1000);
+  try {
+    const r = await fetch(`${API_BASE}/r/${token}/pdf`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    clearInterval(timer);
+    btn.classList.remove('loading'); btn.classList.add('done');
+    iconEl.textContent = '✓';
+    labelEl.textContent = `Gedownload (${Math.round((Date.now() - startTs) / 1000)}s)`;
+    setTimeout(() => {
+      btn.classList.remove('done'); btn.disabled = false;
+      iconEl.innerHTML = orig.icon; labelEl.textContent = orig.label;
+    }, 3000);
+  } catch (err) {
+    clearInterval(timer);
+    btn.classList.remove('loading'); btn.classList.add('error');
+    iconEl.textContent = '⚠️';
+    labelEl.textContent = 'Fout — probeer opnieuw';
+    setTimeout(() => {
+      btn.classList.remove('error'); btn.disabled = false;
+      iconEl.innerHTML = orig.icon; labelEl.textContent = orig.label;
+    }, 4000);
+  }
+}
+
+// Checkout-modal voor betaling via Mollie
+function _openCheckoutModal(e) {
+  const btn = e.currentTarget;
+  const adres = btn.dataset.adres;
+  if (document.getElementById('checkout-modal')) return;
+  const modal = document.createElement('div');
+  modal.id = 'checkout-modal';
+  modal.className = 'checkout-modal';
+  modal.innerHTML = `
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-card" role="dialog" aria-labelledby="modal-title" aria-modal="true">
+      <button class="modal-close" data-close aria-label="Sluiten">×</button>
+      <h2 id="modal-title">Volledig rapport — <em>€ 4,99</em></h2>
+      <p class="modal-sub">Voor <strong>${_escapeHtml(adres)}</strong></p>
+      <ul class="modal-features">
+        <li>📊 13 hoofdstukken: WOZ, klimaat, demografie, onderwijs, voorzieningen, verbouwen</li>
+        <li>🗺️ OpenStreetMap-straatkaart + Kadaster perceel-kaart</li>
+        <li>📄 PDF-download (browser-grade kwaliteit)</li>
+        <li>🔗 Link <strong>7 dagen geldig</strong> in je e-mail</li>
+        <li>↩️ 3 dagen geld-terug-garantie</li>
+      </ul>
+      <form id="checkout-form" class="modal-form">
+        <label for="checkout-email">Je e-mailadres</label>
+        <input type="email" id="checkout-email" name="email" required
+               placeholder="jij@voorbeeld.nl" autocomplete="email"
+               aria-describedby="email-hint">
+        <span id="email-hint" class="field-hint">We sturen je rapport-link hierheen</span>
+        <button type="submit" class="btn-pay">
+          <span class="btn-pay-label">Doorgaan naar betaling →</span>
+        </button>
+        <div id="checkout-error" class="field-error" hidden></div>
+      </form>
+      <p class="modal-foot">
+        Betalen via <strong>iDEAL</strong>, creditcard, Bancontact, Apple Pay of PayPal.<br>
+        <a href="/voorwaarden" target="_blank">Algemene voorwaarden</a> ·
+        <a href="/privacy" target="_blank">Privacy</a>
+      </p>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', () => {
+    modal.remove();
+    document.removeEventListener('keydown', _modalEscapeHandler);
+  }));
+  document.addEventListener('keydown', _modalEscapeHandler);
+  setTimeout(() => document.getElementById('checkout-email')?.focus(), 50);
+  document.getElementById('checkout-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const email = document.getElementById('checkout-email').value.trim();
+    const errorEl = document.getElementById('checkout-error');
+    const submitBtn = ev.target.querySelector('button[type="submit"]');
+    const labelEl = submitBtn.querySelector('.btn-pay-label');
+    const origLabel = labelEl.textContent;
+    errorEl.hidden = true;
+    submitBtn.disabled = true;
+    labelEl.innerHTML = '<span class="spinner spinner-dark"></span> Bezig…';
+    track('checkout_submit');
+    try {
+      const r = await fetch(`${API_BASE}/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adres, email }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.detail || `HTTP ${r.status}`);
+      }
+      const data = await r.json();
+      if (data.checkout_url) window.location.href = data.checkout_url;
+      else throw new Error('Geen checkout-url ontvangen');
+    } catch (err) {
+      errorEl.textContent = `Fout: ${err.message}`;
+      errorEl.hidden = false;
+      submitBtn.disabled = false;
+      labelEl.textContent = origLabel;
+    }
+  });
+}
+
+function _modalEscapeHandler(e) {
+  if (e.key === 'Escape') {
+    document.getElementById('checkout-modal')?.remove();
+    document.removeEventListener('keydown', _modalEscapeHandler);
+  }
+}
+
+function _escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s == null ? '' : String(s);
+  return div.innerHTML;
+}
+
+// Verberg premium secties met paywall-card ervoor (alleen op publieke scan)
+function applyPaywall(adres) {
+  if (_IS_PAID_VIEW) return;
+  if (!_PAYWALL_ENABLED) return;   // feature-flag — paywall pas actief bij go-live
+  const PREMIUM_IDS = [
+    's-buren', 's-veiligheid', 's-leefkwaliteit', 's-klimaat',
+    's-onderwijs', 's-bereikbaarheid', 's-voorzieningen', 's-verbouwing',
+  ];
+  let firstPremium = null;
+  PREMIUM_IDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (el && !el.hidden) {
+      el.classList.add('premium-blur');
+      el.setAttribute('aria-hidden', 'true');
+      el.setAttribute('inert', '');
+      if (!firstPremium) firstPremium = el;
+    }
+  });
+  if (!firstPremium) return;
+  if (document.querySelector('.paywall-card')) return;  // al toegevoegd
+
+  const card = document.createElement('section');
+  card.className = 'card paywall-card';
+  card.innerHTML = `
+    <div class="paywall-badge">PREMIUM</div>
+    <h3>De rest van het rapport zit achter een betaalmuur 🔒</h3>
+    <p class="paywall-intro">
+      Boven zie je de gratis voorvertoning: leefbaarheid, woning-feiten en WOZ.<br>
+      Voor het volledige rapport over <strong>${_escapeHtml(adres)}</strong>:
+    </p>
+    <ul class="paywall-list">
+      <li>👥 <strong>Bewoners &amp; demografie</strong> — eigendom, leeftijd, herkomst, politieke voorkeur</li>
+      <li>🛡️ <strong>Veiligheid</strong> — criminaliteit per categorie vs NL-gemiddelde</li>
+      <li>🫁 <strong>Lucht &amp; geluid</strong> — fijnstof, NO₂, geluidsbelasting</li>
+      <li>🌊 <strong>Klimaatrisico 2050</strong> — overstroming, hitte, paalrot, verschilzetting</li>
+      <li>🏫 <strong>Onderwijs</strong> — alle scholen + opvang met inspectie-oordeel</li>
+      <li>🚆 <strong>Bereikbaarheid</strong> — OV, snelweg, reistijden naar werkcentra</li>
+      <li>🛒 <strong>Voorzieningen</strong> — alle POIs in 7 categorieën binnen 1,5 km</li>
+      <li>🛠️ <strong>Verbouwen</strong> — uitbouw, dakkapel, tuinhuis, zonnepanelen + monument-status</li>
+      <li>📄 <strong>PDF-download</strong> — direct in je inbox, 7 dagen geldig</li>
+    </ul>
+    <button type="button" class="btn-pay-large" id="paywall-cta"
+            data-adres="${adres.replace(/"/g, '&quot;')}">
+      📄 Volledig rapport voor € 4,99
+    </button>
+    <p class="paywall-foot">
+      iDEAL · creditcard · Apple Pay · PayPal &nbsp;·&nbsp; 3 dagen geld-terug
+    </p>
+  `;
+  firstPremium.parentNode.insertBefore(card, firstPremium);
+  document.getElementById('paywall-cta').addEventListener('click', _openCheckoutModal);
+}
+
+// _handlePdfDownload (legacy): vervangen door _handlePdfDownloadPaid voor
+// magic-link route. Functie verwijderd om dead code te vermijden.
 
 function renderGrid(gridId, itemsHTML) {
   const el = document.getElementById(gridId);
@@ -1240,13 +1459,17 @@ async function loadWozAsync(bagVboId, wozBuurt) {
       else if (trend <= -2) { level = 'warn'; chipText = `${trend}% per jaar`; }
       else { level = 'neutral'; chipText = `${trend > 0 ? '+' : ''}${trend}% per jaar`; }
     }
-    // Mini-trendlijn: eerste en laatste 2 datapunten
+    // Laatste 3 peiljaren expliciet — historie is nieuwste eerst, we draaien
+    // om zodat de pijl-richting (oud → nieuw) natuurlijk leest. Een 3-punts
+    // reeks toont meteen of een buurt structureel stijgt, of net pas dit jaar.
     const hist = w.historie || [];
     let histLine = '';
-    if (hist.length >= 2) {
-      const first = hist[hist.length - 1]; // oudste
-      const last = hist[0]; // nieuwste
-      histLine = `${first.peildatum.substr(0,4)}: €${first.waarde_eur.toLocaleString('nl-NL')} → ${last.peildatum.substr(0,4)}: €${last.waarde_eur.toLocaleString('nl-NL')}`;
+    const laatste3 = hist.slice(0, 3).reverse(); // 3 nieuwste, oud → nieuw
+    if (laatste3.length >= 2) {
+      histLine = laatste3
+        .filter(h => h && h.peildatum && h.waarde_eur != null)
+        .map(h => `${h.peildatum.substr(0,4)}: €${h.waarde_eur.toLocaleString('nl-NL')}`)
+        .join(' → ');
     }
     // Schrijf de nieuwe WOZ-cel
     const grid = document.getElementById('s-woning-grid');
@@ -1901,9 +2124,20 @@ function renderCover(cover) {
   const prefix = cover.vs_nl_gem === 'rond'
     ? 'Exact op NL-gemiddelde.'
     : `${capitalize(cover.vs_nl_gem)} NL-gemiddelde.`;
-  setText('cover-meaning', `${prefix} ${betekenis}`);
+  // Voeg empirisch percentiel toe: "Top X% van Nederland" — eerlijker dan
+  // de officiële klasse 9 die ~13% van NL pakt. Komt uit ECDF op 1556-sample.
+  const ctx = formatTopPct(cover.top_pct_nl);
+  setText('cover-meaning', ctx ? `${prefix} ${ctx} ${betekenis}` : `${prefix} ${betekenis}`);
+  // Vul de balk met het echte percentiel-below (% van NL met lagere score),
+  // niet meer met de lineaire (klasse-1)/8 mapping. Voor afw=+0.27 (Damrak)
+  // wordt dat 96% i.p.v. 100% — visueel correcter.
   const fill = document.getElementById('cover-fill');
-  if (fill) fill.style.width = `${cover.percentile_nl || 0}%`;
+  if (fill) {
+    const fillPct = (cover.pct_below_nl != null)
+      ? cover.pct_below_nl
+      : (cover.percentile_nl || 0);
+    fill.style.width = `${fillPct}%`;
+  }
   el.dataset.level = cover.score >= 7 ? 'good' : cover.score >= 4 ? 'neutral' : 'warn';
 
   // Chips (Energielabel, WOZ-trend, Paalrot) zijn uit de cover verwijderd —
@@ -1923,10 +2157,33 @@ function renderCover(cover) {
   }
 
   // 5 sub-dimensies als mini-balkjes + eventuele waarschuwing bij scheve spread.
-  renderCoverDims(cover.dimensies || [], cover.waarschuwing);
+  // Severity bepaalt of het een prominente strook (strong) of subtiele
+  // hint (mild) wordt. Bij geen waarschuwing rendert er niets.
+  renderCoverDims(
+    cover.dimensies || [],
+    cover.waarschuwing,
+    cover.waarschuwing_severity,
+  );
 
   // Trend-sectie: hoe ontwikkelt deze buurt zich? (2-jaar + 10-jaar)
   renderCoverOntwikkeling(cover.ontwikkeling);
+}
+
+// Format "Top X% van Nederland" — handelt edge cases:
+//   - top_pct ≥ 50  → "minder dan 50% van NL ligt hierboven" (te neutraal, skip)
+//   - top_pct ≥ 5   → "Top 7% van Nederland."
+//   - top_pct ≥ 0.5 → "Top 1% van Nederland."
+//   - top_pct < 0.5 → "Top <1% van Nederland." (sample-tail-uiteinde)
+function formatTopPct(topPct) {
+  if (topPct == null || isNaN(topPct)) return '';
+  if (topPct >= 50) {
+    // Onderkant — formuleer als "boven X%"
+    const below = (100 - topPct).toFixed(0);
+    return `Boven ${below}% van Nederland scoort lager.`;
+  }
+  if (topPct < 0.5) return 'Top <1% van Nederland.';
+  if (topPct < 1)   return 'Top 1% van Nederland.';
+  return `Top ${Math.round(topPct)}% van Nederland.`;
 }
 
 function renderHighlights(highlights) {
@@ -1942,18 +2199,18 @@ function renderHighlights(highlights) {
   `).join('');
 }
 
-function renderCoverDims(dims, waarschuwing) {
+function renderCoverDims(dims, waarschuwing, severity) {
   const el = document.getElementById('cover-dims');
   if (!el) return;
   if (!dims.length) { el.innerHTML = ''; return; }
   const rows = dims.map((d) => {
     const pct = Math.max(3, (d.score - 1) / 8 * 100);
     const level = d.score >= 7 ? 'good' : d.score >= 4 ? 'neutral' : 'warn';
-    // Beschrijving staat nu altijd zichtbaar onder het label — op mobile
-    // werkt 'title' tooltip niet (geen hover), dus de tekst is cruciaal
-    // voor begrip: wat meet "Woningen" of "Fysieke omgeving" eigenlijk?
+    // Visueel markeren als deze sub-dimensie de zwakke plek is (≤3) —
+    // belangrijke leesbevestiging dat de waarschuwing erboven hierover gaat.
+    const markClass = d.score <= 3 ? ' dim-row-flag' : '';
     return `
-      <li class="dim-row">
+      <li class="dim-row${markClass}">
         <div class="dim-info">
           <span class="dim-label">${escape(d.label)}</span>
           <span class="dim-desc">${escape(d.beschrijving)}</span>
@@ -1963,13 +2220,17 @@ function renderCoverDims(dims, waarschuwing) {
       </li>
     `;
   }).join('');
+  // Waarschuwing met severity-classe: 'strong' = oranje strook, 'mild' = subtiele zin
   const waarschHTML = waarschuwing
-    ? `<div class="cover-waarschuwing">⚠️ ${escape(waarschuwing)}</div>`
+    ? `<div class="cover-waarschuwing cover-waarschuwing-${severity || 'mild'}">
+         <span class="cover-waarschuwing-icon">${severity === 'strong' ? '⚠️' : 'ℹ️'}</span>
+         <span class="cover-waarschuwing-text">${escape(waarschuwing)}</span>
+       </div>`
     : '';
   el.innerHTML = `
     <div class="cover-dims-header">Opbouw van de score</div>
-    <ul class="cover-dims-list">${rows}</ul>
     ${waarschHTML}
+    <ul class="cover-dims-list">${rows}</ul>
   `;
 }
 

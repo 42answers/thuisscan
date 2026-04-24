@@ -25,6 +25,9 @@ from typing import Optional
 import references
 import social_questions
 from adapters import bag, bereikbaarheid, cbs, klimaat, leefbaarometer, onderwijs, overpass, pdok_locatie, politie, rivm_geluid, rivm_lki, rvo_ep, verbouwing, verkiezingen, woning_extras, woz_loket, wkpb, zonnepanelen
+from adapters.leefbaarometer_distribution import (
+    percentile_from_afw, top_percent_from_afw,
+)
 
 
 def _as_ref(r) -> Optional[dict]:
@@ -1789,37 +1792,75 @@ def _build_veiligheid(m: Optional[politie.Misdrijven]) -> dict:
 def _build_cover(l: Optional[leefbaarometer.LeefbaarheidScore]) -> dict:
     """Leefbaarometer cover: totaal-score + 5 gewogen sub-dimensies.
 
-    Waarschuwingslogica: de Leefbaarometer 3.0 berekent totaalscore door
-    dimensies te **wegen** naar hun invloed op huizenprijzen en bewoners-
-    perceptie (multivariate regressie, geen rekenkundig gemiddelde).
-    Daardoor kan totaal = 9 terwijl sub-dimensies sterk variëren.
-    We detecteren dat en tonen het expliciet — anders voelt de UI oneerlijk.
+    Twee niet-triviale ingrepen op de officiële Leefbaarometer-cijfers:
+
+    1. **Percentiel uit ECDF i.p.v. lineair** — de officiële klasse-schaal
+       1-9 is rechtsscheef in NL (klasse 9 = 13% van NL, klasse 6 = 28%
+       modus). Een lineaire mapping (klasse-1)/8 zou klasse 9 als '100%'
+       laten lezen, terwijl het een top-13% is. We gebruiken nu de
+       empirische ECDF over de continue afw-waarde (1556-sample, gegenereerd
+       door scripts/sample_leefbaarometer_distribution.py).
+
+    2. **Sub-balans-waarschuwing** — Leefbaarometer 3.0 berekent totaal als
+       gewogen som; voorzieningen kan onveiligheid lineair compenseren.
+       Op b.v. Damrak: vrz=9 + onv=1 + rest≈5 → totaal=9, terwijl onv=1
+       een serieus probleem is. We detecteren dat en zetten een prominente
+       waarschuwingsstrook neer.
     """
     if l is None:
         return {"available": False}
-    percentile = round((l.score - 1) / 8 * 100)
 
-    # Spread-analyse: waarschuw als er een dimensie is die duidelijk lager
-    # scoort dan de totaalscore.
+    # Percentiel via ECDF op continue afw — geeft "Top X% van NL" met
+    # gradatie binnen elke klasse (Damrak +0.21 ≈ top 7%, Vondelstraat
+    # +0.61 ≈ top <0.3%). Fallback naar None als afw_continuous ontbreekt.
+    pct_below = percentile_from_afw(l.afw_continuous)
+    top_pct = top_percent_from_afw(l.afw_continuous)
+
+    # Sub-balans-analyse — drempels vervangen "spread" door absolute zwakte
+    # van de min-dim, want anders fired bij Wagenaarweg (alle subs ≥ 5)
+    # ten onrechte een waarschuwing puur op (totaal=9, min=5 → spread=4).
+    # Een 5 = "voldoende", dat is géén alarmsignaal.
+    #
+    #   min_dim ≤ 2 (ruim onvoldoende of slechter)        → 'strong'
+    #   min_dim == 3 én totaal ≥ 6                        → 'strong' (gat met "goed")
+    #   min_dim == 4 én totaal ≥ 7                        → 'mild'   (zwak vs duidelijk goed)
+    #   anders                                            → geen waarschuwing
     dim_scores = [d.score for d in l.dimensies] if l.dimensies else []
     zwakste_dim = None
     waarschuwing = None
-    if dim_scores:
+    waarschuwing_severity = None  # None | 'mild' | 'strong'
+    if dim_scores and l.dimensies:
         min_dim = min(l.dimensies, key=lambda d: d.score)
-        spread = l.score - min_dim.score
-        if spread >= 4:  # significant gat
+        if min_dim.score <= 2:
             zwakste_dim = min_dim.label.lower()
+            waarschuwing_severity = "strong"
             waarschuwing = (
-                f"'{min_dim.label}' scoort veel lager ({min_dim.score}/9). "
-                f"Sterkere dimensies compenseren dat in de totaalscore."
+                f"Sub-score '{min_dim.label}' is {min_dim.score}/9 "
+                f"({_klasse_label(min_dim.score)}). De totaalscore wordt "
+                f"omhoog getrokken door sterkere dimensies."
+            )
+        elif min_dim.score == 3 and l.score >= 6:
+            zwakste_dim = min_dim.label.lower()
+            waarschuwing_severity = "strong"
+            waarschuwing = (
+                f"Sub-score '{min_dim.label}' is {min_dim.score}/9 "
+                f"(onvoldoende), terwijl de totaalscore {l.score}/9 is. "
+                f"Sterkere dimensies compenseren dat in de aggregatie."
+            )
+        elif min_dim.score == 4 and l.score >= 7:
+            zwakste_dim = min_dim.label.lower()
+            waarschuwing_severity = "mild"
+            waarschuwing = (
+                f"'{min_dim.label}' scoort {min_dim.score}/9 (zwak), "
+                f"lager dan de andere dimensies."
             )
 
     # Genuanceerde betekenis: vervang de generieke tekst als er grote spread is
     betekenis = l.betekenis
-    if waarschuwing:
+    if waarschuwing_severity == "strong":
         betekenis = (
             "Hoge totaalscore, maar niet alle aspecten zijn even sterk. "
-            "Zie de uitsplitsing hieronder."
+            "Lees de uitsplitsing hieronder voordat je conclusies trekt."
         )
 
     # Grid-vs-buurt verschil, helder verwoord voor UI.
@@ -1863,25 +1904,39 @@ def _build_cover(l: Optional[leefbaarometer.LeefbaarheidScore]) -> dict:
     ontwikkeling_recent = _serialize_ontwikkeling(l.ontwikkeling_recent, "2 jaar")
     ontwikkeling_lang = _serialize_ontwikkeling(l.ontwikkeling_lang, "10 jaar")
 
+    # Buurt-percentiel idem
+    buurt_top_pct = top_percent_from_afw(l.buurt_afw_continuous)
+
     return {
         "available": True,
         "score": l.score,
         "max": 9,
-        "percentile_nl": percentile,
+        # Lineair percentiel (legacy, niet meer accuraat) — laten staan voor
+        # backward-compat van oudere frontend-builds. Gebruik liever top_pct.
+        "percentile_nl": round((l.score - 1) / 8 * 100),
+        # NIEUW: empirisch percentiel uit ECDF (1556-sample). Bv. afw +0.21
+        # → top 7% (terwijl het lineair 100% zou zijn).
+        "afw_continuous": l.afw_continuous,
+        "top_pct_nl": top_pct,
+        "pct_below_nl": pct_below,
         "label": l.label,
         "vs_nl_gem": l.vs_nl_gem,
         "betekenis": betekenis,
         "waarschuwing": waarschuwing,
+        "waarschuwing_severity": waarschuwing_severity,
         "zwakste_dimensie": zwakste_dim,
         "buurt_score": l.buurt_score,
         "buurt_label": l.buurt_label,
         "buurt_naam": l.buurt_naam,
+        "buurt_top_pct_nl": buurt_top_pct,
         "grid_vs_buurt": grid_vs_buurt,
         "dimensies": [
             {
                 "key": d.key,
                 "label": d.label,
                 "score": d.score,
+                "afw_continuous": d.afw_continuous,
+                # Lineair (legacy) — frontend negeert als top_pct aanwezig
                 "percentile_nl": round((d.score - 1) / 8 * 100),
                 "beschrijving": d.beschrijving,
                 # Relatief label: hoe verhoudt deze dimensie zich tot de totaal?
@@ -1896,6 +1951,15 @@ def _build_cover(l: Optional[leefbaarometer.LeefbaarheidScore]) -> dict:
             "lang": ontwikkeling_lang,
         },
     }
+
+
+def _klasse_label(score: int) -> str:
+    """Korte interpretatie van een 1-9 sub-score voor in waarschuwingen."""
+    return {
+        1: "zeer onvoldoende", 2: "ruim onvoldoende", 3: "onvoldoende",
+        4: "zwak",             5: "voldoende",        6: "ruim voldoende",
+        7: "goed",             8: "zeer goed",        9: "uitstekend",
+    }.get(score, "onbekend")
 
 
 # Dimensie-labels hergebruiken voor de trend-weergave

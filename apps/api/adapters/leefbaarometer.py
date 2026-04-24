@@ -45,8 +45,12 @@ class Dimensiescore:
     """Eén van de 5 onderliggende dimensies, schaal 1-9."""
     key: str       # 'won' / 'fys' / 'vrz' / 'soc' / 'onv'
     label: str     # menselijke naam
-    score: int     # 1-9
+    score: int     # 1-9 (klasse)
     beschrijving: str  # wat valt er in deze dimensie
+    # Continue afwijking t.o.v. NL-gem (positief = boven gem.). Optioneel —
+    # alleen aanwezig wanneer WMS de continue waarde levert; gebruikt voor
+    # ECDF-percentielen i.p.v. de scheve 1-9 klasse-mapping.
+    afw_continuous: Optional[float] = None
 
 
 @dataclass
@@ -76,15 +80,20 @@ class LeefbaarheidScore:
     binnen een minder sterke buurt woont.
     """
 
-    score: int  # 1-9 grid (direct rondom adres, 100m)
+    score: int  # 1-9 klasse (grid, 100m rondom adres)
     label: str
     vs_nl_gem: str
     betekenis: str
     dimensies: list[Dimensiescore] = field(default_factory=list)
+    # Continue afwijking t.o.v. NL-gem voor het 100m-grid (positief = boven).
+    # Hieruit berekent de orchestrator een ECDF-percentiel. None als WMS
+    # de continue waarde niet leverde.
+    afw_continuous: Optional[float] = None
     # Optioneel: hele buurt ter vergelijking
     buurt_score: Optional[int] = None
     buurt_label: Optional[str] = None
     buurt_naam: Optional[str] = None  # bv. "Oranjebuurt"
+    buurt_afw_continuous: Optional[float] = None
     # Trends over tijd — key = periode-string, waarde = Ontwikkeling
     ontwikkeling_recent: Optional[Ontwikkeling] = None  # 2 jaar
     ontwikkeling_lang: Optional[Ontwikkeling] = None    # 10 jaar
@@ -146,18 +155,28 @@ async def fetch_leefbaarheid(rd_x: float, rd_y: float) -> Optional[LeefbaarheidS
     else:
         vs_nl = "boven"
 
-    # Sub-dimensies uit de grid-cel (preciest)
+    # Continue totaal-afwijking (positief = boven NL-gem). Cruciaal voor de
+    # ECDF-percentiel-berekening — de discrete kscore (1-9) is te grof om
+    # bv. een randje-9 (afw +0.21) te onderscheiden van een élite-9 (+0.61).
+    afw_grid = _to_float(grid_props.get("afw"))
+
+    # Sub-dimensies uit de grid-cel (preciest). Bewaar zowel klasse (1-9)
+    # als de continue waarde — frontend kan met continue waarden eerlijker
+    # vergelijken tussen sub-dimensies onderling.
     dims: list[Dimensiescore] = []
     for key, naam, beschr in DIMENSIES:
         s = _to_score(grid_props.get(f"k{key}"))
+        a = _to_float(grid_props.get(key))
         if s is not None:
-            dims.append(Dimensiescore(key=key, label=naam, score=s, beschrijving=beschr))
+            dims.append(Dimensiescore(key=key, label=naam, score=s,
+                                      beschrijving=beschr, afw_continuous=a))
 
     # Buurt-score + buurtnaam ter vergelijking. De buurtscore-layer levert
     # 'name' = buurtnaam (bv. 'Oranjebuurt'), 'id' = CBS-buurtcode.
     buurt_score = None
     buurt_label = None
     buurt_naam = None
+    buurt_afw = None
     if buurt_props:
         buurt_score = _to_score(buurt_props.get("kscore"))
         if buurt_score is not None:
@@ -165,6 +184,7 @@ async def fetch_leefbaarheid(rd_x: float, rd_y: float) -> Optional[LeefbaarheidS
         bn = buurt_props.get("name") or buurt_props.get("buurtnaam")
         if isinstance(bn, str) and bn.strip():
             buurt_naam = bn.strip()
+        buurt_afw = _to_float(buurt_props.get("afw"))
 
     # Ontwikkeling (optioneel — faalt silently als WMS-layer niet beschikbaar)
     ontw_recent = _parse_ontwikkeling(dev_recent_props, "2022-2024")
@@ -176,9 +196,11 @@ async def fetch_leefbaarheid(rd_x: float, rd_y: float) -> Optional[LeefbaarheidS
         vs_nl_gem=vs_nl,
         betekenis=betekenis,
         dimensies=dims,
+        afw_continuous=afw_grid,
         buurt_score=buurt_score,
         buurt_label=buurt_label,
         buurt_naam=buurt_naam,
+        buurt_afw_continuous=buurt_afw,
         ontwikkeling_recent=ontw_recent,
         ontwikkeling_lang=ontw_lang,
     )
@@ -263,3 +285,13 @@ def _to_score(raw) -> Optional[int]:
     except (TypeError, ValueError):
         return None
     return s if 1 <= s <= 9 else None
+
+
+def _to_float(raw) -> Optional[float]:
+    """Generic float-coerce. None bij missende of niet-numerieke waarde."""
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None

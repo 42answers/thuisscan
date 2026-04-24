@@ -794,15 +794,50 @@ main {
   line-height: 1.35;
 }
 
+/* Sub-balans-waarschuwing — verschijnt boven de dim-bars als sub-score
+   significant lager is dan totaal. Twee severities:
+     mild   = subtiele info (bijv. min=4 én totaal≥7)
+     strong = prominente alarm (min≤2, of min=3 met totaal≥6)
+   Bewust BOVEN de dim-list (i.p.v. eronder) zodat lezer eerst de context
+   krijgt voordat hij naar de balkjes kijkt. */
 .cover-waarschuwing {
-  margin-top: 1rem;
-  padding: 0.8rem 1rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin: 0.4rem 0 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.cover-waarschuwing-icon {
+  flex-shrink: 0;
+  font-size: 1.05rem;
+  line-height: 1.4;
+}
+.cover-waarschuwing-text {
+  flex: 1;
+}
+.cover-waarschuwing-mild {
   background: #fdf5e6;
   border-left: 3px solid #d9a441;
-  border-radius: 6px;
-  font-size: 0.82rem;
   color: #5a4215;
-  line-height: 1.5;
+}
+.cover-waarschuwing-strong {
+  background: #fbe8e1;
+  border-left: 4px solid var(--weak);
+  color: #6a2818;
+  font-weight: 500;
+}
+/* Markeren van zwakke sub-dimensie in de bar-lijst, zodat lezer ziet
+   waar de waarschuwing over gaat. */
+.dim-row-flag .dim-label::after {
+  content: " ⚠";
+  color: var(--weak);
+  font-weight: 600;
+}
+.dim-row-flag .dim-score {
+  color: var(--weak);
 }
 .dim-label { color: var(--ink); }
 .dim-bar {
@@ -1883,3 +1918,320 @@ button.rapport-knop:disabled {
 
 /* Footer-text: muted maar leesbaar */
 .site-footer .muted { color: #5d5d5d; }
+
+/* ================================================================== */
+/* PAYWALL — premium-blur secties + paywall-card + checkout-modal     */
+/* ================================================================== */
+/*
+ * Wordt alleen geactiveerd door applyPaywall() in app.js, en alleen als
+ * window.__buurtscan_paid !== true en de feature-flag _PAYWALL_ENABLED == true.
+ * Default is paywall UIT (zie app.js _PAYWALL_DEFAULT_ON) zodat de
+ * landingspagina normaal blijft werken tijdens implementatie.
+ */
+
+/* --- Geblurde premium-secties --- */
+.premium-blur {
+  position: relative;
+  filter: blur(7px) saturate(0.8);
+  opacity: 0.5;
+  pointer-events: none;             /* extra defense in depth naast inert */
+  user-select: none;
+  transition: filter 0.2s ease;
+}
+/* Eerste premium-sectie krijgt een fade-out overlay zodat de overgang
+   van paywall-card naar geblurde inhoud zachter is. */
+.premium-blur::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(250, 250, 247, 0.0) 0%,
+    rgba(250, 250, 247, 0.0) 60%,
+    rgba(250, 250, 247, 0.85) 100%
+  );
+  pointer-events: none;
+}
+
+/* --- Paywall-card (vervangt visueel de eerste premium-sectie) --- */
+.paywall-card {
+  position: relative;
+  background: linear-gradient(180deg, #ffffff 0%, #f5fbf8 100%);
+  border: 1px solid var(--accent);
+  border-radius: 14px;
+  padding: 1.8rem 1.6rem 1.6rem;
+  margin: 1.5rem 0 1.2rem;
+  box-shadow: 0 4px 24px rgba(31, 69, 54, 0.08);
+}
+.paywall-card .paywall-badge {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  padding: 0.25rem 0.6rem;
+  border-radius: 3px;
+  margin-bottom: 0.8rem;
+}
+.paywall-card h3 {
+  font-size: 1.4rem;
+  margin: 0 0 0.5rem;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+}
+.paywall-card .paywall-intro {
+  font-size: 0.98rem;
+  color: var(--ink);
+  margin: 0 0 1.2rem;
+  line-height: 1.55;
+}
+.paywall-card .paywall-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1.4rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem 1.2rem;
+}
+.paywall-card .paywall-list li {
+  font-size: 0.9rem;
+  color: var(--ink);
+  line-height: 1.45;
+  padding-left: 0;
+}
+.paywall-card .paywall-list strong {
+  font-weight: 600;
+}
+@media (max-width: 600px) {
+  .paywall-card .paywall-list { grid-template-columns: 1fr; }
+  .paywall-card { padding: 1.4rem 1.2rem 1.2rem; }
+  .paywall-card h3 { font-size: 1.2rem; }
+}
+.paywall-card .paywall-foot {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0.9rem 0 0;
+  text-align: center;
+}
+
+/* --- Grote CTA-knop in paywall-card --- */
+.btn-pay-large {
+  display: block;
+  width: 100%;
+  padding: 1rem 1.2rem;
+  background: var(--accent);
+  color: #fff;
+  font-family: inherit;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.05s;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.btn-pay-large:hover { background: #1f4536; border-color: #1f4536; }
+.btn-pay-large:active { transform: translateY(1px); }
+.btn-pay-large:focus-visible {
+  outline: 3px solid #88c947;
+  outline-offset: 2px;
+}
+
+/* --- Checkout-modal (overlay + card) --- */
+.checkout-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  animation: modal-fade-in 0.18s ease-out;
+}
+.checkout-modal .modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 30, 26, 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  cursor: pointer;
+}
+.checkout-modal .modal-card {
+  position: relative;
+  background: #fff;
+  border-radius: 14px;
+  max-width: 480px;
+  width: 100%;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  padding: 1.8rem 1.6rem 1.5rem;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.25);
+  animation: modal-slide-up 0.22s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.checkout-modal .modal-close {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.7rem;
+  background: transparent;
+  border: none;
+  font-size: 1.6rem;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  border-radius: 16px;
+  font-family: inherit;
+}
+.checkout-modal .modal-close:hover { background: #f3f5f4; color: var(--ink); }
+.checkout-modal h2 {
+  font-size: 1.4rem;
+  margin: 0 0 0.3rem;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  padding-right: 2rem;        /* ruimte voor close-knop */
+}
+.checkout-modal h2 em {
+  font-style: normal;
+  color: var(--accent);
+  font-weight: 600;
+}
+.checkout-modal .modal-sub {
+  font-size: 0.92rem;
+  color: var(--muted);
+  margin: 0 0 1.2rem;
+}
+.checkout-modal .modal-sub strong { color: var(--ink); font-weight: 600; }
+
+.checkout-modal .modal-features {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1.4rem;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 1rem 0;
+}
+.checkout-modal .modal-features li {
+  font-size: 0.9rem;
+  color: var(--ink);
+  padding: 0.3rem 0;
+  line-height: 1.45;
+}
+
+/* --- Email-formulier in modal --- */
+.checkout-modal .modal-form {
+  display: flex;
+  flex-direction: column;
+}
+.checkout-modal .modal-form label {
+  font-size: 0.85rem;
+  color: var(--ink);
+  font-weight: 500;
+  margin-bottom: 0.4rem;
+}
+.checkout-modal .modal-form input[type="email"] {
+  font-family: inherit;
+  font-size: 1rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  transition: border-color 0.12s, box-shadow 0.12s;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.checkout-modal .modal-form input[type="email"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.checkout-modal .field-hint {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 0.35rem;
+}
+.checkout-modal .field-error {
+  background: #fbe8e1;
+  color: var(--weak);
+  border: 1px solid #f1c8bb;
+  border-radius: 6px;
+  padding: 0.55rem 0.8rem;
+  font-size: 0.85rem;
+  margin-top: 0.8rem;
+}
+
+/* --- Submit-knop in modal --- */
+.btn-pay {
+  margin-top: 1.1rem;
+  padding: 0.85rem 1.2rem;
+  background: var(--accent);
+  color: #fff;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.05s;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.btn-pay:hover { background: #1f4536; border-color: #1f4536; }
+.btn-pay:active { transform: translateY(1px); }
+.btn-pay:disabled { background: #4a6e62; border-color: #4a6e62; cursor: progress; }
+.btn-pay:focus-visible {
+  outline: 3px solid #88c947;
+  outline-offset: 2px;
+}
+.btn-pay-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.checkout-modal .modal-foot {
+  margin: 1.2rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.5;
+}
+.checkout-modal .modal-foot a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.checkout-modal .modal-foot a:hover { text-decoration: underline; }
+
+/* --- Spinner-variant: donker (op licht/wit) i.t.t. .spinner (wit) --- */
+.spinner.spinner-dark {
+  border: 2px solid rgba(31, 69, 54, 0.22);
+  border-top-color: #1f4536;
+}
+
+/* --- Animations --- */
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes modal-slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .checkout-modal,
+  .checkout-modal .modal-card { animation: none !important; }
+  .premium-blur { transition: none !important; }
+}
+
+/* Body-scroll-lock terwijl modal open is — voorkomt dat de pagina onder
+   de modal scrollt. JS kan optioneel `body.modal-open` zetten; CSS-only
+   alternatief: wanneer .checkout-modal in DOM is, body niet meer scrollen. */
+body:has(.checkout-modal) {
+  overflow: hidden;
+}
+
