@@ -2124,8 +2124,12 @@ function renderCover(cover) {
   const prefix = cover.vs_nl_gem === 'rond'
     ? 'Exact op NL-gemiddelde.'
     : `${capitalize(cover.vs_nl_gem)} NL-gemiddelde.`;
-  // Voeg empirisch percentiel toe: "Top X% van Nederland" — eerlijker dan
-  // de officiële klasse 9 die ~13% van NL pakt. Komt uit ECDF op 1556-sample.
+  // Empirisch percentiel uit ECDF (1556-sample) — eerlijker dan de officiële
+  // klasse 1-9 die rechtsscheef is (klasse 9 = top 13% NL). Twee plekken:
+  //   1. Prominente badge naast het grote score-getal (cover-percentile) —
+  //      direct zichtbaar zonder de zin eronder te lezen
+  //   2. Inline in de betekenis-zin (cover-meaning) — fallback / context
+  renderPercentileBadge(cover.top_pct_nl, cover.score);
   const ctx = formatTopPct(cover.top_pct_nl);
   setText('cover-meaning', ctx ? `${prefix} ${ctx} ${betekenis}` : `${prefix} ${betekenis}`);
   // Vul de balk met het echte percentiel-below (% van NL met lagere score),
@@ -2184,6 +2188,42 @@ function formatTopPct(topPct) {
   if (topPct < 0.5) return 'Top <1% van Nederland.';
   if (topPct < 1)   return 'Top 1% van Nederland.';
   return `Top ${Math.round(topPct)}% van Nederland.`;
+}
+
+// Prominente percentiel-badge in de cover-score block (naast het '/9'-getal).
+// Toont een korte "Top X%" of "Bottom X%" chip met kleur op basis van positie:
+//   top_pct ≤ 10  → 'good'    (groen — top NL)
+//   top_pct ≤ 50  → 'neutral' (accent — bovengemiddeld)
+//   top_pct > 50  → 'warn'    (rood — ondergemiddeld)
+//   geen data     → hidden
+function renderPercentileBadge(topPct, score) {
+  const el = document.getElementById('cover-percentile');
+  if (!el) return;
+  if (topPct == null || isNaN(topPct)) {
+    el.hidden = true;
+    return;
+  }
+  // Tekst: "Top 7%" / "Top <1%" / "Bottom 12%" / "NL-gemiddeld"
+  let text;
+  let level;
+  if (topPct < 0.5) {
+    text = 'Top <1% NL';
+    level = 'good';
+  } else if (topPct < 10) {
+    text = `Top ${Math.round(topPct)}% NL`;
+    level = 'good';
+  } else if (topPct <= 50) {
+    text = `Top ${Math.round(topPct)}% NL`;
+    level = 'neutral';
+  } else if (topPct >= 95) {
+    text = `Bottom ${Math.max(1, Math.round(100 - topPct))}% NL`;
+    level = 'warn';
+  } else {
+    text = `Bottom ${Math.round(100 - topPct)}% NL`;
+    level = 'warn';
+  }
+  el.innerHTML = `<span class="cover-percentile-chip cover-pct-${level}">${escape(text)}</span>`;
+  el.hidden = false;
 }
 
 function renderHighlights(highlights) {

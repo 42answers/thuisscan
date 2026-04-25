@@ -135,6 +135,32 @@ def _render_balans_waarschuwing(text, severity):
         f'</div>'
     )
 
+
+def _render_percentile_chip(top_pct):
+    """Render de empirisch-percentiel chip onder de grote score in leef-hero.
+
+    Spiegel van renderPercentileBadge() in apps/web/app.js — drie kleur-niveaus
+    (good/neutral/warn) op basis van top_pct positie, en compacte tekst zoals
+    'Top 7% NL' / 'Bottom 3% NL'. Returnt lege string bij geen data.
+    """
+    if top_pct is None:
+        return ""
+    try:
+        p = float(top_pct)
+    except (TypeError, ValueError):
+        return ""
+    if p < 0.5:
+        text, level = "Top &lt;1% NL", "good"
+    elif p < 10:
+        text, level = f"Top {round(p)}% NL", "good"
+    elif p <= 50:
+        text, level = f"Top {round(p)}% NL", "neutral"
+    elif p >= 95:
+        text, level = f"Bottom {max(1, round(100 - p))}% NL", "warn"
+    else:
+        text, level = f"Bottom {round(100 - p)}% NL", "warn"
+    return f'<div class="leef-pct leef-pct-{level}">{text}</div>'
+
 def fmt_pct(v, signed=True):
     if v is None: return "—"
     sign = "+" if v > 0 and signed else ""
@@ -772,9 +798,12 @@ def render_wijk_karakter():
                  "De Leefbaarometer (BZK) combineert ruim 100 indicatoren — voorzieningen, veiligheid, sociale samenhang, woningvoorraad — tot één score per 100-meter-gebied. Schaal 1 (zwak) tot 9 (top).")}
 
       <div class="leef-hero">
-        <div class="leef-score">{leef_score or '—'}</div>
+        <div class="leef-score-block">
+          <div class="leef-score">{leef_score or '—'}</div>
+          {_render_percentile_chip(top_pct)}
+        </div>
         <div class="leef-info">
-          <div class="leef-label">{html.escape(leef_label.capitalize())}{(' · <strong>' + top_pct_str + '</strong>') if top_pct_str else ''}</div>
+          <div class="leef-label">{html.escape(leef_label.capitalize())}</div>
           <div class="source">Direct rondom het adres (±100&nbsp;m) · Buurt <strong>{html.escape(leef_buurt_naam)}</strong> · Peiljaar 2024</div>
           {scale_html}
         </div>
@@ -1732,11 +1761,28 @@ html, body {
   display: grid; grid-template-columns: 80px 1fr;
   gap: 22px; align-items: center; margin: 8px 0 12px;
 }
+.leef-score-block { text-align: center; }
 .leef-score {
   font-family: 'Source Serif Pro', 'Georgia', serif;
   font-style: italic; font-size: 50pt; font-weight: 400;
   line-height: 1; text-align: center;
 }
+/* Empirisch percentiel-chip onder de grote score — toont 'Top X% NL' of
+   'Bottom X% NL' met severity-kleur. Eerlijker dan de 1-9 klasse (klasse 9
+   = top 13%, geen top 1%). */
+.leef-pct {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 8pt;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  border: 1px solid transparent;
+}
+.leef-pct-good    { background: #e4f4eb; border-color: #c2e4cd; color: var(--good); }
+.leef-pct-neutral { background: #eef4f2; border-color: #d0e0d8; color: var(--accent); }
+.leef-pct-warn    { background: #fbe8e1; border-color: #f0cbbe; color: var(--warn); }
 .leef-info .leef-label {
   font-family: 'Source Serif Pro', 'Georgia', serif;
   font-size: 15pt; font-weight: 400; margin-bottom: 2px;

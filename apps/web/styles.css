@@ -657,6 +657,41 @@ main {
 }
 .cover-suffix { color: var(--muted); font-size: 1rem; }
 
+/* Percentile-badge — direct onder de '/9' in de score-block. Compact, met
+   accent-kleur op basis van positie in NL (good = top, warn = bottom).
+   Dit is dé plek waar de lezer de échte rang ziet — eerlijker dan de
+   1-9 klasse die rechtsscheef is in NL (klasse 9 = top 13%). */
+.cover-percentile {
+  margin-top: 0.5rem;
+  text-align: center;
+}
+.cover-percentile-chip {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.cover-pct-good {
+  background: #e4f4eb;
+  border-color: #c2e4cd;
+  color: var(--strong);
+}
+.cover-pct-neutral {
+  background: var(--accent-soft);
+  border-color: #c8dcd5;
+  color: var(--accent);
+}
+.cover-pct-warn {
+  background: #fbe8e1;
+  border-color: #f0cbbe;
+  color: var(--weak);
+}
+
 .cover-body { min-width: 0; }
 .cover-label {
   font-size: 1.1rem;
