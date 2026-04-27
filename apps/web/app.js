@@ -2180,25 +2180,22 @@ function renderCover(cover) {
   renderCoverOntwikkeling(cover.ontwikkeling);
 }
 
-// Format inline-zin variant van het percentiel — symmetrisch:
-//   bovenkant: "Top X% van Nederland."
-//   onderkant: "Onderste X% van Nederland."
-// Edge cases:
-//   - top_pct < 0.5  → "Top <1% van Nederland." (sample-tail)
-//   - top_pct < 1    → "Top 1% van Nederland."
-//   - top_pct ≤ 50   → "Top X% van Nederland."
-//   - top_pct ≥ 99.5 → "Onderste <1% van Nederland."
-//   - top_pct > 50   → "Onderste X% van Nederland."  (X = 100 - top_pct)
+// Format inline-zin variant van het percentiel — expliciet "qua leefbaarheid"
+// zodat de lezer weet waaraan de top/onderste-positie refereert (ipv 'top
+// 7%' wat zonder context vaag is — top 7% qua wat? inkomen? prijs?).
+//
+//   bovenkant: "Top X% van Nederland qua leefbaarheid."
+//   onderkant: "Onderste X% van Nederland qua leefbaarheid."
 function formatTopPct(topPct) {
   if (topPct == null || isNaN(topPct)) return '';
-  if (topPct < 0.5) return 'Top <1% van Nederland.';
-  if (topPct < 1)   return 'Top 1% van Nederland.';
-  if (topPct <= 50) return `Top ${Math.round(topPct)}% van Nederland.`;
-  // Onderkant: spiegel
+  const suffix = ' van Nederland qua leefbaarheid.';
+  if (topPct < 0.5) return 'Top <1%' + suffix;
+  if (topPct < 1)   return 'Top 1%' + suffix;
+  if (topPct <= 50) return `Top ${Math.round(topPct)}%` + suffix;
   const onderste = 100 - topPct;
-  if (onderste < 0.5) return 'Onderste <1% van Nederland.';
-  if (onderste < 1)   return 'Onderste 1% van Nederland.';
-  return `Onderste ${Math.round(onderste)}% van Nederland.`;
+  if (onderste < 0.5) return 'Onderste <1%' + suffix;
+  if (onderste < 1)   return 'Onderste 1%' + suffix;
+  return `Onderste ${Math.round(onderste)}%` + suffix;
 }
 
 // Prominente percentiel-badge in de cover-score block (naast het '/9'-getal).
@@ -2239,7 +2236,10 @@ function renderPercentileBadge(topPct, score) {
     }
     level = 'warn';
   }
-  el.innerHTML = `<span class="cover-percentile-chip cover-pct-${level}">${escape(text)}</span>`;
+  // Mini-label boven de chip maakt expliciet WAARVAN dit het percentiel is.
+  // Zonder label is "Top 7% NL" ambigu (top 7% van wat? inkomen, prijs?).
+  el.innerHTML = `<span class="cover-percentile-chip cover-pct-${level}">${escape(text)}</span>
+                  <div class="cover-percentile-caption">leefbaarheid</div>`;
   el.hidden = false;
 }
 

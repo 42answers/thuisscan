@@ -101,10 +101,11 @@ def euro(v):
 
 
 def _fmt_top_pct(top_pct):
-    """Empirisch percentiel → leesbare 'Top X% van Nederland' (boven gem.)
-    of 'Onderste X% van Nederland' (onder gem.) tekst.
+    """Empirisch percentiel → leesbare 'Top X% van Nederland qua leefbaarheid'
+    (boven gem.) of 'Onderste X% van Nederland qua leefbaarheid' (onder gem.).
 
-    Spiegel van formatTopPct() in apps/web/app.js — symmetrisch, geen Engels.
+    Spiegel van formatTopPct() in apps/web/app.js — expliciet 'qua leefbaarheid'
+    zodat duidelijk is waar het percentiel naar refereert.
     """
     if top_pct is None:
         return ""
@@ -112,19 +113,19 @@ def _fmt_top_pct(top_pct):
         p = float(top_pct)
     except (TypeError, ValueError):
         return ""
+    suffix = " van Nederland qua leefbaarheid"
     if p < 0.5:
-        return "Top &lt;1% van Nederland"
+        return "Top &lt;1%" + suffix
     if p < 1:
-        return "Top 1% van Nederland"
+        return "Top 1%" + suffix
     if p <= 50:
-        return f"Top {round(p)}% van Nederland"
-    # Onderkant — spiegel
+        return f"Top {round(p)}%" + suffix
     onderste = 100 - p
     if onderste < 0.5:
-        return "Onderste &lt;1% van Nederland"
+        return "Onderste &lt;1%" + suffix
     if onderste < 1:
-        return "Onderste 1% van Nederland"
-    return f"Onderste {round(onderste)}% van Nederland"
+        return "Onderste 1%" + suffix
+    return f"Onderste {round(onderste)}%" + suffix
 
 
 def _render_balans_waarschuwing(text, severity):
@@ -171,7 +172,10 @@ def _render_percentile_chip(top_pct):
         else:
             text = f"Onderste {round(onderste)}% NL"
         level = "warn"
-    return f'<div class="leef-pct leef-pct-{level}">{text}</div>'
+    # Mini-label onder de chip — dezelfde rol als in app.js (cover-percentile-caption):
+    # maakt expliciet dat het percentiel over leefbaarheid gaat.
+    return (f'<div class="leef-pct leef-pct-{level}">{text}</div>'
+            f'<div class="leef-pct-caption">leefbaarheid</div>')
 
 def fmt_pct(v, signed=True):
     if v is None: return "—"
@@ -1795,6 +1799,14 @@ html, body {
 .leef-pct-good    { background: #e4f4eb; border-color: #c2e4cd; color: var(--good); }
 .leef-pct-neutral { background: #eef4f2; border-color: #d0e0d8; color: var(--accent); }
 .leef-pct-warn    { background: #fbe8e1; border-color: #f0cbbe; color: var(--warn); }
+.leef-pct-caption {
+  margin-top: 2px;
+  font-size: 7pt;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+}
 .leef-info .leef-label {
   font-family: 'Source Serif Pro', 'Georgia', serif;
   font-size: 15pt; font-weight: 400; margin-bottom: 2px;
