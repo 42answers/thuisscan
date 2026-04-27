@@ -236,6 +236,65 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* Adres-marker — pulserend punt op gezochte locatie */
+    .search-marker {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 3px solid #fff;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+      position: relative;
+      cursor: pointer;
+    }
+    .search-marker::before {
+      content: '';
+      position: absolute;
+      inset: -6px;
+      border-radius: 50%;
+      background: var(--accent);
+      opacity: 0;
+      animation: search-pulse 1.6s ease-out infinite;
+      z-index: -1;
+    }
+    .search-marker::after {
+      content: '';
+      position: absolute;
+      inset: -12px;
+      border-radius: 50%;
+      background: var(--accent);
+      opacity: 0;
+      animation: search-pulse 1.6s ease-out infinite;
+      animation-delay: 0.6s;
+      z-index: -1;
+    }
+    @keyframes search-pulse {
+      0%   { transform: scale(0.6); opacity: 0.55; }
+      80%  { opacity: 0; }
+      100% { transform: scale(2.2); opacity: 0; }
+    }
+    .search-marker-label {
+      position: absolute;
+      bottom: calc(100% + 6px); left: 50%;
+      transform: translateX(-50%);
+      background: var(--ink); color: #fff;
+      padding: 0.25rem 0.55rem; border-radius: 4px;
+      font-size: 0.78rem; font-weight: 500;
+      white-space: nowrap;
+      pointer-events: none;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+    .search-marker-label::after {
+      content: '';
+      position: absolute;
+      top: 100%; left: 50%;
+      transform: translateX(-50%);
+      border: 4px solid transparent;
+      border-top-color: var(--ink);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .search-marker::before, .search-marker::after { animation: none; }
+    }
+
     @media (max-width: 720px) {
       .topbar { gap: 0.4rem; padding: 0.5rem; }
       .topbar .brand { font-size: 0.95rem; }
@@ -891,6 +950,24 @@ async function doSearch(q) {
   }
 }
 
+// Marker-state — één tegelijk, vorige weghalen bij nieuwe zoekopdracht
+let searchMarker = null;
+
+function placeSearchMarker(lon, lat, label) {
+  if (searchMarker) searchMarker.remove();
+  const el = document.createElement('div');
+  el.className = 'search-marker';
+  if (label) {
+    const lbl = document.createElement('div');
+    lbl.className = 'search-marker-label';
+    lbl.textContent = label.length > 40 ? label.slice(0, 38) + '…' : label;
+    el.appendChild(lbl);
+  }
+  searchMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
+    .setLngLat([lon, lat])
+    .addTo(map);
+}
+
 async function selectSearchResult(id) {
   const r = await fetch(`https://api.pdok.nl/bzk/locatieserver/search/v3_1/lookup?id=${encodeURIComponent(id)}`);
   const d = await r.json();
@@ -899,11 +976,27 @@ async function selectSearchResult(id) {
   const m = (doc.centroide_ll || '').match(/POINT\(([\d.-]+)\s+([\d.-]+)\)/);
   if (!m) return;
   const lon = parseFloat(m[1]), lat = parseFloat(m[2]);
-  map.flyTo({ center: [lon, lat], zoom: 12.5, duration: 1200 });
+  // Zoom: voor adres direct naar 100m grid (zoom 14), voor woonplaats/gemeente
+  // op buurt-niveau (zoom 12.5)
+  const isAdres = (doc.type === 'adres' || doc.type === 'postcode');
+  const targetZoom = isAdres ? 14.5 : 12.5;
+  map.flyTo({ center: [lon, lat], zoom: targetZoom, duration: 1200 });
+  // Marker plaatsen op exacte locatie — pulse-effect maakt 'm direct
+  // zichtbaar in elke zoom-state.
+  placeSearchMarker(lon, lat, doc.weergavenaam || '');
   document.getElementById('search-input').value = doc.weergavenaam || '';
   document.getElementById('search-results').hidden = true;
-  // Auto-switch naar buurt-niveau zodra we ingezoomd zijn
-  setTimeout(() => switchLayer('buurten'), 1200);
+  // Auto-switch naar passend niveau na fly
+  setTimeout(() => {
+    if (isAdres) {
+      // Voor adres: trigger ook direct de WMS GetFeatureInfo zodat het paneel
+      // meteen het 100m vakje toont (geen handmatige klik nodig)
+      switchLayer('buurten');
+      fetchGridInfo(lon, lat);
+    } else {
+      switchLayer('buurten');
+    }
+  }, 1300);
 }
 
 // =============================================================================
