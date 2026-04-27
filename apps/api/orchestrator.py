@@ -1831,28 +1831,30 @@ def _build_cover(l: Optional[leefbaarometer.LeefbaarheidScore]) -> dict:
     waarschuwing_severity = None  # None | 'mild' | 'strong'
     if dim_scores and l.dimensies:
         min_dim = min(l.dimensies, key=lambda d: d.score)
+        # Korte, jargon-vrije waarschuwingen — geen "sub-score", "dimensies",
+        # "compenseren in de aggregatie". Wel concreet: welk onderdeel, hoe
+        # laag, en wat dat betekent voor de totaalscore.
         if min_dim.score <= 2:
             zwakste_dim = min_dim.label.lower()
             waarschuwing_severity = "strong"
             waarschuwing = (
-                f"Sub-score '{min_dim.label}' is {min_dim.score}/9 "
-                f"({_klasse_label(min_dim.score)}). De totaalscore wordt "
-                f"omhoog getrokken door sterkere dimensies."
+                f"{min_dim.label} is hier zeer zwak ({min_dim.score}/9). "
+                f"De andere onderdelen halen de totaalscore omhoog, "
+                f"maar dit blijft een zwak punt."
             )
         elif min_dim.score == 3 and l.score >= 6:
             zwakste_dim = min_dim.label.lower()
             waarschuwing_severity = "strong"
             waarschuwing = (
-                f"Sub-score '{min_dim.label}' is {min_dim.score}/9 "
-                f"(onvoldoende), terwijl de totaalscore {l.score}/9 is. "
-                f"Sterkere dimensies compenseren dat in de aggregatie."
+                f"{min_dim.label} scoort hier opvallend laag ({min_dim.score}/9). "
+                f"De andere onderdelen trekken de totaalscore omhoog."
             )
         elif min_dim.score == 4 and l.score >= 7:
             zwakste_dim = min_dim.label.lower()
             waarschuwing_severity = "mild"
             waarschuwing = (
-                f"'{min_dim.label}' scoort {min_dim.score}/9 (zwak), "
-                f"lager dan de andere dimensies."
+                f"{min_dim.label} scoort hier wat lager ({min_dim.score}/9) "
+                f"dan de andere onderdelen."
             )
 
     # Override de officiële schaal-betekenis ALLEEN bij Damrak-pattern:
@@ -1955,15 +1957,6 @@ def _build_cover(l: Optional[leefbaarometer.LeefbaarheidScore]) -> dict:
             "lang": ontwikkeling_lang,
         },
     }
-
-
-def _klasse_label(score: int) -> str:
-    """Korte interpretatie van een 1-9 sub-score voor in waarschuwingen."""
-    return {
-        1: "zeer onvoldoende", 2: "ruim onvoldoende", 3: "onvoldoende",
-        4: "zwak",             5: "voldoende",        6: "ruim voldoende",
-        7: "goed",             8: "zeer goed",        9: "uitstekend",
-    }.get(score, "onbekend")
 
 
 # Dimensie-labels hergebruiken voor de trend-weergave
