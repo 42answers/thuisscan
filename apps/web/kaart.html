@@ -535,7 +535,9 @@ function renderRanking(layer) {
     (a, b) => b.properties.afw - a.properties.afw
   );
   const top5 = sorted.slice(0, 5);
-  const bottom5 = sorted.slice(-5).reverse();
+  // Onderste-5 in ascending volgorde (minst slecht eerst, slechtste laatst).
+  // Sorted is descending op afw, dus slice(-5) geeft al [minst-slecht ... slechtste].
+  const bottom5 = sorted.slice(-5);
   const titleEl = document.getElementById('rank-title');
   const titleBotEl = document.getElementById('rank-title-bottom');
   const noun = layer === 'provincies' ? 'provincies' : 'gemeenten';
