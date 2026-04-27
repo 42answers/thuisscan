@@ -92,7 +92,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "font-src 'self' https://fonts.gstatic.com data:; "
                 "connect-src 'self' https://api.pdok.nl https://*.openstreetmap.org "
                     "https://service.pdok.nl https://*.overheid.nl https://service.omgevingswet.overheid.nl "
-                    "https://maps.googleapis.com https://*.basemaps.cartocdn.com; "
+                    "https://maps.googleapis.com https://*.basemaps.cartocdn.com "
+                    # MapLibre source-map fetch op error/devtools
+                    "https://unpkg.com; "
                 "frame-src https://www.google.com; "  # Google Maps embed
                 # MapLibre GL maakt een Web Worker via blob: voor tile-rendering;
                 # zonder expliciete worker-src valt CSP terug op script-src dat

@@ -5,38 +5,33 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <title>Leefbaarheidskaart van Nederland — Buurtscan</title>
-  <meta name="description" content="Interactieve kaart van leefbaarheid in Nederland per provincie en gemeente. Gebaseerd op Leefbaarometer 3.0 (BZK, peiljaar 2024)." />
+  <meta name="description" content="Interactieve kaart van leefbaarheid in Nederland — provincie, gemeente, wijk, buurt — gebaseerd op Leefbaarometer 3.0 (BZK 2024)." />
   <link rel="canonical" href="https://buurtscan.com/kaart" />
   <meta name="robots" content="index, follow" />
 
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Leefbaarheidskaart van Nederland" />
-  <meta property="og:description" content="Hoe leefbaar is jouw provincie of gemeente vergeleken met de rest van Nederland?" />
+  <meta property="og:description" content="Hoe leefbaar is jouw buurt vergeleken met de rest van Nederland? Zoom in tot op straat-niveau." />
   <meta property="og:url" content="https://buurtscan.com/kaart" />
   <meta property="og:locale" content="nl_NL" />
   <meta property="og:site_name" content="Buurtscan" />
-
   <meta name="theme-color" content="#1f4536" />
 
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🏠%3C/text%3E%3C/svg%3E" />
 
   <link rel="preconnect" href="https://unpkg.com" crossorigin />
   <link rel="preconnect" href="https://basemaps.cartocdn.com" crossorigin />
+  <link rel="preconnect" href="https://api.pdok.nl" crossorigin />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.5.0/dist/maplibre-gl.css" />
   <script src="https://unpkg.com/maplibre-gl@4.5.0/dist/maplibre-gl.js"></script>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --ink: #1a1a1a;
-      --muted: #5d5d5d;
-      --line: #e4e4e4;
-      --bg: #fafaf7;
-      --card: #ffffff;
-      --accent: #1f4536;
-      --accent-soft: #e8f1ef;
-      --good: #1d7a56;
-      --warn: #a14a3a;
+      --ink: #1a1a1a; --muted: #5d5d5d; --line: #e4e4e4;
+      --bg: #fafaf7; --card: #ffffff;
+      --accent: #1f4536; --accent-soft: #e8f1ef;
+      --good: #1d7a56; --warn: #a14a3a;
     }
     html, body {
       font-family: -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", sans-serif;
@@ -45,12 +40,12 @@
       -webkit-font-smoothing: antialiased;
     }
 
-    /* Top bar */
+    /* Top bar — bevat brand + adres-zoek + nav-links */
     .topbar {
       position: fixed; top: 0; left: 0; right: 0;
       background: #fff; border-bottom: 1px solid var(--line);
-      padding: 0.7rem 1rem;
-      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.6rem 1rem;
+      display: flex; align-items: center; gap: 1rem;
       z-index: 100;
       padding-left: max(1rem, env(safe-area-inset-left));
       padding-right: max(1rem, env(safe-area-inset-right));
@@ -58,6 +53,7 @@
     .topbar .brand {
       color: var(--ink); text-decoration: none;
       font-weight: 700; font-size: 1.05rem;
+      flex-shrink: 0;
     }
     .topbar .brand .logo-mark {
       display: inline-block; width: 18px; height: 18px;
@@ -69,9 +65,44 @@
     .topbar .links a {
       color: var(--accent); text-decoration: none;
       font-size: 0.9rem; font-weight: 500;
-      margin-left: 1.2rem;
+      margin-left: 0.8rem;
     }
     .topbar .links a:hover { text-decoration: underline; }
+
+    /* Adres-zoekbalk — midden van topbar */
+    .search-wrap {
+      position: relative;
+      flex: 1; max-width: 380px;
+    }
+    #search-input {
+      width: 100%;
+      padding: 0.45rem 0.85rem;
+      font-family: inherit; font-size: 0.92rem;
+      border: 1px solid var(--line); border-radius: 6px;
+      background: #fafaf7;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    #search-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+      background: #fff;
+    }
+    #search-results {
+      position: absolute;
+      top: calc(100% + 4px); left: 0; right: 0;
+      background: #fff; border: 1px solid var(--line);
+      border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+      list-style: none; max-height: 260px; overflow-y: auto;
+      z-index: 200;
+    }
+    #search-results li {
+      padding: 0.5rem 0.85rem; cursor: pointer;
+      font-size: 0.88rem;
+      border-bottom: 1px solid #f3f3f0;
+    }
+    #search-results li:last-child { border-bottom: none; }
+    #search-results li:hover { background: var(--accent-soft); color: var(--accent); }
 
     /* Map container — fills viewport below topbar */
     #map {
@@ -80,10 +111,10 @@
       background: #f0eee8;
     }
 
-    /* Side-panel (desktop) / bottom-sheet (mobile) */
+    /* Side-panel */
     .info-panel {
       position: fixed;
-      top: 76px; left: 16px; width: 280px;
+      top: 76px; left: 16px; width: 290px;
       background: rgba(255, 255, 255, 0.96);
       backdrop-filter: blur(8px);
       -webkit-backdrop-filter: blur(8px);
@@ -109,7 +140,6 @@
     }
     .info-panel h2:first-of-type { margin-top: 0.6rem; }
 
-    /* Hover/selected feature info */
     .feat-info {
       background: var(--accent-soft);
       border-left: 3px solid var(--accent);
@@ -117,13 +147,8 @@
       margin-bottom: 0.8rem;
     }
     .feat-info.empty { color: var(--muted); font-style: italic; font-size: 0.85rem; padding: 0.6rem 0.85rem; }
-    .feat-info .feat-name {
-      font-weight: 600; font-size: 1rem; margin-bottom: 0.2rem;
-    }
-    .feat-info .feat-meta {
-      font-size: 0.78rem; color: var(--muted);
-      margin-bottom: 0.5rem;
-    }
+    .feat-info .feat-name { font-weight: 600; font-size: 1rem; margin-bottom: 0.2rem; }
+    .feat-info .feat-meta { font-size: 0.78rem; color: var(--muted); margin-bottom: 0.5rem; }
     .feat-info .feat-pct {
       display: inline-block;
       padding: 0.18rem 0.55rem; border-radius: 999px;
@@ -135,11 +160,8 @@
     .feat-info .feat-pct.good { background:#e4f4eb; color:var(--good); border-color:#c2e4cd; }
     .feat-info .feat-pct.neutral { background:#eef4f2; color:var(--accent); border-color:#d0e0d8; }
     .feat-info .feat-pct.warn { background:#fbe8e1; color:var(--warn); border-color:#f0cbbe; }
-    .feat-info .feat-extra {
-      font-size: 0.76rem; color: var(--muted); margin-top: 0.4rem;
-    }
+    .feat-info .feat-extra { font-size: 0.76rem; color: var(--muted); margin-top: 0.4rem; }
 
-    /* Top/bottom-list */
     .rank-list {
       list-style: none;
       font-size: 0.82rem;
@@ -152,15 +174,11 @@
     .rank-list li:last-child { border-bottom: none; }
     .rank-list li:hover { color: var(--accent); }
     .rank-list .rank-name { font-weight: 500; }
-    .rank-list .rank-pct {
-      font-variant-numeric: tabular-nums;
-      color: var(--muted); font-size: 0.78rem;
-    }
+    .rank-list .rank-pct { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.78rem; }
 
-    /* Legend bottom right */
+    /* Legend */
     .legend {
-      position: fixed;
-      bottom: 16px; right: 16px;
+      position: fixed; bottom: 16px; right: 16px;
       background: rgba(255, 255, 255, 0.96);
       backdrop-filter: blur(8px);
       -webkit-backdrop-filter: blur(8px);
@@ -186,7 +204,7 @@
       font-size: 0.68rem; color: var(--muted);
     }
 
-    /* Layer-toggle pills */
+    /* 4-knop laag-toggle */
     .layer-toggle {
       position: fixed; top: 76px; right: 16px;
       background: rgba(255, 255, 255, 0.96);
@@ -200,33 +218,40 @@
     }
     .layer-toggle button {
       background: transparent; border: none;
-      padding: 0.4rem 0.85rem; border-radius: 6px;
+      padding: 0.4rem 0.75rem; border-radius: 6px;
       font-family: inherit; font-size: 0.85rem;
       color: var(--muted); cursor: pointer;
       font-weight: 500;
+      position: relative;
     }
-    .layer-toggle button.active {
-      background: var(--accent); color: #fff;
+    .layer-toggle button.active { background: var(--accent); color: #fff; }
+    .layer-toggle button:hover:not(.active) { background: var(--accent-soft); color: var(--accent); }
+    .layer-toggle button.loading::after {
+      content: ''; position: absolute;
+      top: 50%; right: 4px;
+      width: 8px; height: 8px; margin-top: -4px;
+      border: 2px solid currentColor; border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
     }
-    .layer-toggle button:hover:not(.active) {
-      background: var(--accent-soft); color: var(--accent);
-    }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* Mobile: panel becomes bottom sheet */
     @media (max-width: 720px) {
+      .topbar { gap: 0.4rem; padding: 0.5rem; }
+      .topbar .brand { font-size: 0.95rem; }
+      .topbar .links { display: none; }
+      .search-wrap { max-width: none; }
       .info-panel {
         top: auto; bottom: 80px; left: 12px; right: 12px;
-        width: auto; max-height: 40vh;
-        padding: 0.8rem 1rem;
+        width: auto; max-height: 36vh;
+        padding: 0.7rem 1rem;
       }
       .info-panel .lede { display: none; }
       .info-panel h1 { font-size: 1rem; margin-bottom: 0.4rem; }
-      .legend {
-        bottom: 12px; right: 12px;
-        padding: 0.5rem 0.7rem;
-      }
+      .legend { bottom: 12px; right: 12px; padding: 0.5rem 0.7rem; }
       .legend .legend-bar { width: 140px; }
-      .layer-toggle { top: 68px; right: 12px; }
+      .layer-toggle { top: 60px; right: 12px; padding: 3px; }
+      .layer-toggle button { padding: 0.3rem 0.55rem; font-size: 0.78rem; }
     }
   </style>
 </head>
@@ -234,8 +259,12 @@
 
 <header class="topbar">
   <a href="/" class="brand"><span class="logo-mark">B</span>Buurtscan</a>
+  <div class="search-wrap">
+    <input type="search" id="search-input" placeholder="Zoek adres of plaats…" autocomplete="off" />
+    <ul id="search-results" hidden></ul>
+  </div>
   <div class="links">
-    <a href="/">← Zoek je adres</a>
+    <a href="/">Scan adres</a>
     <a href="/over">Over</a>
   </div>
 </header>
@@ -243,24 +272,20 @@
 <div id="map"></div>
 
 <div class="layer-toggle">
-  <button id="btn-prov" class="active" data-layer="provincies">Provincie</button>
-  <button id="btn-gem" data-layer="gemeenten">Gemeente</button>
+  <button id="btn-prov"  class="active" data-layer="provincies">Provincie</button>
+  <button id="btn-gem"               data-layer="gemeenten">Gemeente</button>
+  <button id="btn-wijk"              data-layer="wijken">Wijk</button>
+  <button id="btn-buurt"             data-layer="buurten">Buurt</button>
 </div>
 
 <aside class="info-panel">
   <h1>Leefbaarheid in Nederland</h1>
-  <p class="lede">
-    Hoe scoort jouw provincie of gemeente op leefbaarheid vergeleken met de
-    rest van Nederland? Klik op een gebied voor details.
-  </p>
-
+  <p class="lede">Zoom in voor meer detail. Klik op een gebied voor cijfers, of zoek een adres bovenin.</p>
   <h2>Geselecteerd</h2>
   <div class="feat-info empty" id="feat-info">Hover of klik op een gebied…</div>
-
   <h2 id="rank-title">Top 5 leefbaarste provincies</h2>
   <ul class="rank-list" id="rank-top"></ul>
-
-  <h2 id="rank-title-bottom">Onderste 5</h2>
+  <h2 id="rank-title-bottom">Onderste 5 provincies</h2>
   <ul class="rank-list" id="rank-bottom"></ul>
 </aside>
 
@@ -275,7 +300,33 @@
 </div>
 
 <script>
-// ------- MapLibre setup -------
+// =============================================================================
+// CONFIG
+// =============================================================================
+const ZOOM_THRESHOLDS = {
+  // Auto-switch breakpoints op basis van map.getZoom()
+  provincies: { min: 0,    max: 7.5  },
+  gemeenten:  { min: 7.5,  max: 9.5  },
+  wijken:     { min: 9.5,  max: 11.5 },
+  buurten:    { min: 11.5, max: 22   },
+};
+const COLOR_EXPRESSION = [
+  'step',
+  ['to-number', ['get', 'afw'], 0],
+  '#a14a3a',
+  -0.10, '#c47a4f',
+  -0.03, '#dab26b',
+   0.03, '#cdd97e',
+   0.10, '#88c947',
+   0.30, '#1d7a56',
+];
+const FILL_OPACITY = [
+  'case', ['boolean', ['feature-state', 'hover'], false], 0.9, 0.65,
+];
+
+// =============================================================================
+// MAP SETUP
+// =============================================================================
 const map = new maplibregl.Map({
   container: 'map',
   style: {
@@ -292,58 +343,37 @@ const map = new maplibregl.Map({
         attribution: '© OpenStreetMap contributors © CARTO',
       },
     },
-    layers: [{
-      id: 'carto',
-      type: 'raster',
-      source: 'carto',
-      minzoom: 0,
-      maxzoom: 22,
-    }],
+    layers: [{ id: 'carto', type: 'raster', source: 'carto', minzoom: 0, maxzoom: 22 }],
   },
-  center: [5.3, 52.2],   // ongeveer midden-NL
+  center: [5.3, 52.2],
   zoom: 6.6,
   minZoom: 5,
-  maxZoom: 12,
+  maxZoom: 14,
 });
 map.addControl(new maplibregl.NavigationControl(), 'top-right');
 
-// ------- Color expression -------
-// Step-buckets ipv interpolate — robuuster (interpolate kan stilletjes falen
-// op ontbrekende waarden of edge cases). 'to-number' coerce zorgt dat string
-// afw-waarden ook werken; 0 als fallback bij missing.
-const COLOR_EXPRESSION = [
-  'step',
-  ['to-number', ['get', 'afw'], 0],
-  '#a14a3a',          // -∞   .. -0.10  zeer slecht
-  -0.10, '#c47a4f',   // -0.10 .. -0.03  slecht
-  -0.03, '#dab26b',   // -0.03 ..  0.03  iets onder
-   0.03, '#cdd97e',   //  0.03 ..  0.10  iets boven
-   0.10, '#88c947',   //  0.10 ..  0.30  goed
-   0.30, '#1d7a56',   //  0.30 ..        zeer goed
-];
-
-// ------- Geo-data laden -------
-let provData = null, gemData = null;
+// =============================================================================
+// STATE
+// =============================================================================
+let provData = null;     // provincie FeatureCollection (upfront)
+let gemData = null;      // gemeente FC (upfront)
+let wijkData = null;     // wijk FC (lazy, 1× fetch bij switchLayer('wijken'))
+let buurtIndex = null;   // {pcode → {file, bbox, naam, n_features}}
+let buurtCache = new Map();   // pcode → loaded FeatureCollection
+let buurtData = { type: 'FeatureCollection', features: [] };  // merged source
 let activeLayer = 'provincies';
+let userOverride = false;     // true zodra gebruiker zelf een knop indrukt
 
-// Wacht tot de map style geladen is. MapLibre's 'load' vuurt 1×; als wij
-// pas later subscriben dan miss we 'm. Dus check eerst isStyleLoaded(),
-// anders luister op style.load EN als fallback poll elke 50ms.
+// =============================================================================
+// READY HELPER
+// =============================================================================
 function whenMapReady() {
   return new Promise((resolve) => {
-    if (map.isStyleLoaded()) {
-      resolve();
-      return;
-    }
+    if (map.isStyleLoaded()) return resolve();
     let resolved = false;
-    const done = () => {
-      if (resolved) return;
-      resolved = true;
-      resolve();
-    };
+    const done = () => { if (!resolved) { resolved = true; resolve(); } };
     map.once('load', done);
     map.once('style.load', done);
-    // Defensieve fallback — sommige MapLibre-versies vuren noch op tijd
     const poll = setInterval(() => {
       if (map.isStyleLoaded()) { clearInterval(poll); done(); }
     }, 50);
@@ -351,100 +381,177 @@ function whenMapReady() {
   });
 }
 
-async function init() {
-  try {
-    const [provResp, gemResp] = await Promise.all([
-      fetch('/data/lbm/provincies.geojson'),
-      fetch('/data/lbm/gemeenten.geojson'),
-    ]);
-    if (!provResp.ok) throw new Error(`provincies HTTP ${provResp.status}`);
-    if (!gemResp.ok)  throw new Error(`gemeenten HTTP ${gemResp.status}`);
+// =============================================================================
+// LAYER REGISTRATION
+// =============================================================================
+function ensureSourceAndLayers(layerKey) {
+  // Voegt source + layer toe als ze nog niet bestaan
+  const map_id = layerKey;
+  if (map.getSource(map_id)) return;
+  let data;
+  if (layerKey === 'provincies') data = provData;
+  else if (layerKey === 'gemeenten') data = gemData;
+  else if (layerKey === 'wijken')    data = wijkData;
+  else if (layerKey === 'buurten')   data = buurtData;
+  if (!data) { console.warn(`[kaart] ensureSourceAndLayers(${layerKey}): no data`); return; }
 
-    // Voeg een numeric id toe aan elke feature — vereist voor feature-state
-    // (MapLibre's hover-effect via setFeatureState heeft een ID nodig per feature).
-    const prov = await provResp.json();
-    const gem = await gemResp.json();
-    prov.features.forEach((f, i) => f.id = i);
-    gem.features.forEach((f, i)  => f.id = i);
-    provData = prov;
-    gemData = gem;
-    console.info(`[kaart] geojsons OK: ${prov.features.length} provincies + ${gem.features.length} gemeenten`);
+  map.addSource(map_id, { type: 'geojson', data });
+  map.addLayer({
+    id: `${map_id}-fill`, type: 'fill', source: map_id,
+    paint: { 'fill-color': COLOR_EXPRESSION, 'fill-opacity': FILL_OPACITY },
+    layout: { visibility: 'none' },
+  });
+  map.addLayer({
+    id: `${map_id}-outline`, type: 'line', source: map_id,
+    paint: {
+      'line-color': '#ffffff',
+      'line-width': layerKey === 'buurten' ? 0.3 : layerKey === 'wijken' ? 0.4 : 0.6,
+    },
+    layout: { visibility: 'none' },
+  });
+  setupHover(`${map_id}-fill`, map_id);
+  setupClick(`${map_id}-fill`, layerKey);
+  console.info(`[kaart] source+layers '${map_id}' geregistreerd`);
+}
 
-    await whenMapReady();
-    console.info('[kaart] map style loaded — bronnen toevoegen');
+// =============================================================================
+// LAZY-LOAD per layer
+// =============================================================================
+async function ensureLayerData(layerKey) {
+  if (layerKey === 'provincies' && !provData)  await loadProvincies();
+  if (layerKey === 'gemeenten'  && !gemData)   await loadGemeenten();
+  if (layerKey === 'wijken'     && !wijkData)  await loadWijken();
+  if (layerKey === 'buurten'    && !buurtIndex) await loadBuurtIndex();
+}
 
-    map.addSource('provincies', { type: 'geojson', data: prov });
-    map.addSource('gemeenten',  { type: 'geojson', data: gem  });
+async function loadProvincies() {
+  const r = await fetch('/data/lbm/provincies.geojson');
+  provData = await r.json();
+  provData.features.forEach((f, i) => f.id = i);
+  console.info(`[kaart] provincies: ${provData.features.length}`);
+}
 
-    map.addLayer({
-      id: 'prov-fill', type: 'fill', source: 'provincies',
-      paint: {
-        'fill-color': COLOR_EXPRESSION,
-        'fill-opacity': [
-          'case', ['boolean', ['feature-state', 'hover'], false], 0.85, 0.65,
-        ],
-      },
-    });
-    map.addLayer({
-      id: 'prov-outline', type: 'line', source: 'provincies',
-      paint: { 'line-color': '#ffffff', 'line-width': 1.2 },
-    });
-    map.addLayer({
-      id: 'gem-fill', type: 'fill', source: 'gemeenten',
-      paint: {
-        'fill-color': COLOR_EXPRESSION,
-        'fill-opacity': [
-          'case', ['boolean', ['feature-state', 'hover'], false], 0.9, 0.7,
-        ],
-      },
-      layout: { visibility: 'none' },
-    });
-    map.addLayer({
-      id: 'gem-outline', type: 'line', source: 'gemeenten',
-      paint: { 'line-color': '#ffffff', 'line-width': 0.5 },
-      layout: { visibility: 'none' },
-    });
+async function loadGemeenten() {
+  const r = await fetch('/data/lbm/gemeenten.geojson');
+  gemData = await r.json();
+  gemData.features.forEach((f, i) => f.id = i);
+  console.info(`[kaart] gemeenten: ${gemData.features.length}`);
+}
 
-    setupHover('prov-fill', 'provincies');
-    setupHover('gem-fill', 'gemeenten');
-    setupClick('prov-fill', 'provincies');
-    setupClick('gem-fill', 'gemeenten');
+async function loadWijken() {
+  setBtnLoading('btn-wijk', true);
+  const r = await fetch('/data/lbm/wijken.geojson');
+  wijkData = await r.json();
+  wijkData.features.forEach((f, i) => f.id = i);
+  setBtnLoading('btn-wijk', false);
+  console.info(`[kaart] wijken: ${wijkData.features.length}`);
+}
 
-    renderRanking('provincies');
-    setupLayerToggle();
-    console.info('[kaart] init compleet');
+async function loadBuurtIndex() {
+  const r = await fetch('/data/lbm/buurten/index.json');
+  buurtIndex = await r.json();
+  console.info(`[kaart] buurt-index: ${Object.keys(buurtIndex).length} provincies`);
+}
 
-    // Defensief — log of de layers daadwerkelijk bestaan + visibility-status
-    ['prov-fill', 'prov-outline', 'gem-fill', 'gem-outline'].forEach((id) => {
-      const layer = map.getLayer(id);
-      if (!layer) {
-        console.error(`[kaart] LAYER ${id} ONTBREEKT na addLayer!`);
-      } else {
-        const vis = map.getLayoutProperty(id, 'visibility') || 'visible';
-        console.info(`[kaart] layer ${id} OK · visibility=${vis}`);
-      }
-    });
-  } catch (err) {
-    console.error('[kaart] init faalde:', err);
-    const el = document.getElementById('feat-info');
-    if (el) {
-      el.classList.remove('empty');
-      el.innerHTML = `<div class="feat-name">⚠️ Kaart laden faalde</div>
-                      <div class="feat-extra">${err.message || err}</div>`;
+// Buurt-fetch per provincie (lazy, op basis van viewport)
+async function loadBuurtenForViewport() {
+  if (!buurtIndex) await loadBuurtIndex();
+  const bounds = map.getBounds();
+  // Welke provincie-bboxes overlappen met huidige viewport?
+  const needed = [];
+  for (const [pcode, meta] of Object.entries(buurtIndex)) {
+    const [w, s, e, n] = meta.bbox;
+    if (e < bounds.getWest() || w > bounds.getEast()) continue;
+    if (n < bounds.getSouth() || s > bounds.getNorth()) continue;
+    if (!buurtCache.has(pcode)) needed.push(pcode);
+  }
+  if (!needed.length) return;
+  setBtnLoading('btn-buurt', true);
+  console.info(`[kaart] buurten lazy-fetch: ${needed.join(', ')}`);
+  await Promise.all(needed.map(async (pcode) => {
+    const meta = buurtIndex[pcode];
+    try {
+      const r = await fetch(`/data/lbm/${meta.file}`);
+      const fc = await r.json();
+      buurtCache.set(pcode, fc);
+    } catch (err) {
+      console.error(`[kaart] buurt ${pcode} fetch faalde:`, err);
+      buurtCache.set(pcode, { type: 'FeatureCollection', features: [] });
+    }
+  }));
+  // Merge alle gecachete provincies in één buurtData
+  const all = [];
+  let idx = 0;
+  for (const fc of buurtCache.values()) {
+    for (const f of fc.features) {
+      f.id = idx++;
+      all.push(f);
+    }
+  }
+  buurtData = { type: 'FeatureCollection', features: all };
+  // Update existing source als die al bestaat, anders register'm
+  if (map.getSource('buurten')) {
+    map.getSource('buurten').setData(buurtData);
+  } else {
+    ensureSourceAndLayers('buurten');
+  }
+  setBtnLoading('btn-buurt', false);
+  console.info(`[kaart] buurten total in source: ${buurtData.features.length}`);
+}
+
+// =============================================================================
+// SWITCH-LAYER
+// =============================================================================
+async function switchLayer(layerKey, fromUser = false) {
+  if (fromUser) userOverride = true;
+  if (activeLayer === layerKey) {
+    // Voor buurten: nog steeds re-evaluate viewport (na pan)
+    if (layerKey === 'buurten') await loadBuurtenForViewport();
+    return;
+  }
+  await ensureLayerData(layerKey);
+  if (layerKey === 'buurten') await loadBuurtenForViewport();
+  ensureSourceAndLayers(layerKey);
+  // Verberg alle andere layers, toon deze
+  ['provincies','gemeenten','wijken','buurten'].forEach((k) => {
+    const visible = (k === layerKey);
+    if (map.getLayer(`${k}-fill`))    map.setLayoutProperty(`${k}-fill`,    'visibility', visible ? 'visible' : 'none');
+    if (map.getLayer(`${k}-outline`)) map.setLayoutProperty(`${k}-outline`, 'visibility', visible ? 'visible' : 'none');
+  });
+  activeLayer = layerKey;
+  document.querySelectorAll('.layer-toggle button').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.layer === layerKey);
+  });
+  renderRanking(layerKey);
+}
+
+function setBtnLoading(btnId, loading) {
+  const el = document.getElementById(btnId);
+  if (el) el.classList.toggle('loading', loading);
+}
+
+// Auto-switch op zoom — alleen als user nog niet handmatig heeft getoggled
+function autoSwitchOnZoom() {
+  if (userOverride) return;
+  const z = map.getZoom();
+  for (const [layer, range] of Object.entries(ZOOM_THRESHOLDS)) {
+    if (z >= range.min && z < range.max) {
+      if (activeLayer !== layer) switchLayer(layer);
+      return;
     }
   }
 }
 
-init();
-
-// ------- Hover-state -------
-let hoverIdByLayer = { provincies: null, gemeenten: null };
+// =============================================================================
+// HOVER + CLICK
+// =============================================================================
+const hoverIdByLayer = {};
 function setupHover(layerId, sourceId) {
   map.on('mousemove', layerId, (e) => {
     if (!e.features.length) return;
     map.getCanvas().style.cursor = 'pointer';
     const id = e.features[0].id;
-    if (hoverIdByLayer[sourceId] !== null) {
+    if (hoverIdByLayer[sourceId] != null) {
       map.setFeatureState({ source: sourceId, id: hoverIdByLayer[sourceId] }, { hover: false });
     }
     hoverIdByLayer[sourceId] = id;
@@ -453,26 +560,26 @@ function setupHover(layerId, sourceId) {
   });
   map.on('mouseleave', layerId, () => {
     map.getCanvas().style.cursor = '';
-    if (hoverIdByLayer[sourceId] !== null) {
+    if (hoverIdByLayer[sourceId] != null) {
       map.setFeatureState({ source: sourceId, id: hoverIdByLayer[sourceId] }, { hover: false });
       hoverIdByLayer[sourceId] = null;
     }
   });
 }
 
-// ------- Click — zoom in (op provincie → naar gemeente-laag) -------
-function setupClick(layerId, sourceId) {
+const NEXT_LEVEL = { provincies: 'gemeenten', gemeenten: 'wijken', wijken: 'buurten', buurten: null };
+function setupClick(layerId, layerKey) {
   map.on('click', layerId, (e) => {
     if (!e.features.length) return;
     const f = e.features[0];
     const bbox = computeBbox(f.geometry);
-    if (sourceId === 'provincies') {
-      // Klik op provincie: switch naar gemeente-laag + zoom naar bbox
-      switchLayer('gemeenten');
-      map.fitBounds(bbox, { padding: 60, maxZoom: 9.5, duration: 700 });
+    const next = NEXT_LEVEL[layerKey];
+    if (next) {
+      // Zoom in + auto-switch naar volgend niveau
+      map.fitBounds(bbox, { padding: 50, maxZoom: ZOOM_THRESHOLDS[next].max - 0.5, duration: 700 });
+      switchLayer(next);
     } else {
-      // Klik op gemeente: zoom verder in
-      map.fitBounds(bbox, { padding: 80, maxZoom: 11, duration: 700 });
+      map.fitBounds(bbox, { padding: 80, maxZoom: 14, duration: 700 });
     }
     showFeatureInfo(f.properties, true);
   });
@@ -486,66 +593,46 @@ function computeBbox(geom) {
       if (c[0] > maxLon) maxLon = c[0];
       if (c[1] < minLat) minLat = c[1];
       if (c[1] > maxLat) maxLat = c[1];
-    } else {
-      for (const sub of c) walk(sub);
-    }
+    } else for (const sub of c) walk(sub);
   }
   walk(geom.coordinates);
   return [[minLon, minLat], [maxLon, maxLat]];
 }
 
-// ------- Layer toggle -------
-function setupLayerToggle() {
-  document.querySelectorAll('.layer-toggle button').forEach(btn => {
-    btn.addEventListener('click', () => switchLayer(btn.dataset.layer));
-  });
-}
-function switchLayer(layer) {
-  if (activeLayer === layer) return;
-  activeLayer = layer;
-  document.querySelectorAll('.layer-toggle button').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.layer === layer);
-  });
-  if (layer === 'gemeenten') {
-    map.setLayoutProperty('prov-fill', 'visibility', 'none');
-    map.setLayoutProperty('prov-outline', 'visibility', 'none');
-    map.setLayoutProperty('gem-fill', 'visibility', 'visible');
-    map.setLayoutProperty('gem-outline', 'visibility', 'visible');
-  } else {
-    map.setLayoutProperty('prov-fill', 'visibility', 'visible');
-    map.setLayoutProperty('prov-outline', 'visibility', 'visible');
-    map.setLayoutProperty('gem-fill', 'visibility', 'none');
-    map.setLayoutProperty('gem-outline', 'visibility', 'none');
-  }
-  renderRanking(layer);
-}
-
-// ------- Feature-info paneel + tooltip -------
+// =============================================================================
+// FEATURE INFO PANEL
+// =============================================================================
 function showFeatureInfo(p, persistent = false) {
   const el = document.getElementById('feat-info');
   el.classList.remove('empty');
   const top = p.top_pct_nl;
   let chipText, chipLevel;
-  if (top == null)         { chipText = '—'; chipLevel = 'neutral'; }
-  else if (top < 0.5)      { chipText = 'Top <1% NL'; chipLevel = 'good'; }
-  else if (top < 10)       { chipText = `Top ${Math.round(top)}% NL`; chipLevel = 'good'; }
-  else if (top <= 50)      { chipText = `Top ${Math.round(top)}% NL`; chipLevel = 'neutral'; }
+  if (top == null)            { chipText = '—'; chipLevel = 'neutral'; }
+  else if (top < 0.5)         { chipText = 'Top <1% NL'; chipLevel = 'good'; }
+  else if (top < 10)          { chipText = `Top ${Math.round(top)}% NL`; chipLevel = 'good'; }
+  else if (top <= 50)         { chipText = `Top ${Math.round(top)}% NL`; chipLevel = 'neutral'; }
   else {
     const onderste = 100 - top;
-    if (onderste < 0.5)    chipText = 'Onderste <1% NL';
+    if (onderste < 0.5) chipText = 'Onderste <1% NL';
     else if (onderste < 1) chipText = 'Onderste 1% NL';
-    else                   chipText = `Onderste ${Math.round(onderste)}% NL`;
+    else chipText = `Onderste ${Math.round(onderste)}% NL`;
     chipLevel = 'warn';
   }
+  // Context: provincie/gemeente naam toevoegen
+  let meta = '';
+  if (p.gemeente && p.gemeente !== p.naam) meta = `${p.gemeente}${p.provincie ? ' · ' + p.provincie : ''}`;
+  else if (p.provincie) meta = p.provincie;
+
   let extra = '';
   if (p.n_gemeenten) {
     extra = `${p.n_gemeenten} gemeenten · best ${(p.max_gem_afw>0?'+':'')}${p.max_gem_afw}, slechtst ${p.min_gem_afw>0?'+':''}${p.min_gem_afw}`;
   } else if (p.klasse != null) {
     extra = `Officiële Leefbaarometer: klasse ${p.klasse} van 9`;
   }
+
   el.innerHTML = `
     <div class="feat-name">${escapeHtml(p.naam || '—')}</div>
-    <div class="feat-meta">${p.provincie ? escapeHtml(p.provincie) : ''}</div>
+    ${meta ? `<div class="feat-meta">${escapeHtml(meta)}</div>` : ''}
     <span class="feat-pct ${chipLevel}">${escapeHtml(chipText)}</span>
     <div class="feat-extra">${extra}</div>
   `;
@@ -557,22 +644,27 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
-// ------- Top/bottom ranking lists -------
+// =============================================================================
+// RANKING LIST
+// =============================================================================
 function renderRanking(layer) {
-  const data = layer === 'provincies' ? provData : gemData;
-  if (!data) return;
-  const sorted = [...data.features].sort(
-    (a, b) => b.properties.afw - a.properties.afw
-  );
+  const data = layer === 'provincies' ? provData
+             : layer === 'gemeenten'  ? gemData
+             : layer === 'wijken'     ? wijkData
+             : buurtData;
+  if (!data || !data.features.length) {
+    document.getElementById('rank-top').innerHTML = '<li><em style="color:var(--muted)">laden…</em></li>';
+    document.getElementById('rank-bottom').innerHTML = '';
+    return;
+  }
+  const sorted = [...data.features].sort((a, b) => b.properties.afw - a.properties.afw);
   const top5 = sorted.slice(0, 5);
-  // Onderste-5 in ascending volgorde (minst slecht eerst, slechtste laatst).
-  // Sorted is descending op afw, dus slice(-5) geeft al [minst-slecht ... slechtste].
   const bottom5 = sorted.slice(-5);
-  const titleEl = document.getElementById('rank-title');
-  const titleBotEl = document.getElementById('rank-title-bottom');
-  const noun = layer === 'provincies' ? 'provincies' : 'gemeenten';
-  titleEl.textContent = `Top 5 leefbaarste ${noun}`;
-  titleBotEl.textContent = `Onderste 5 ${noun}`;
+  const noun = layer === 'provincies' ? 'provincies'
+             : layer === 'gemeenten'  ? 'gemeenten'
+             : layer === 'wijken'     ? 'wijken' : 'buurten';
+  document.getElementById('rank-title').textContent = `Top 5 leefbaarste ${noun}`;
+  document.getElementById('rank-title-bottom').textContent = `Onderste 5 ${noun}`;
 
   const renderList = (id, arr) => {
     const el = document.getElementById(id);
@@ -584,8 +676,12 @@ function renderRanking(layer) {
       else if (top < 1) pctText = 'top <1%';
       else if (top <= 50) pctText = `top ${Math.round(top)}%`;
       else pctText = `onderste ${Math.round(100 - top)}%`;
+      // Naam: voor wijk/buurt ook gemeente erbij want veel duplicaten
+      const namePart = (p.gemeente && p.gemeente !== p.naam)
+        ? `${escapeHtml(p.naam)} <span style="opacity:.6;font-weight:400">· ${escapeHtml(p.gemeente)}</span>`
+        : escapeHtml(p.naam);
       return `<li data-code="${p.code}">
-        <span class="rank-name">${escapeHtml(p.naam)}</span>
+        <span class="rank-name">${namePart}</span>
         <span class="rank-pct">${pctText}</span>
       </li>`;
     }).join('');
@@ -594,7 +690,7 @@ function renderRanking(layer) {
         const code = li.dataset.code;
         const feat = data.features.find(f => f.properties.code === code);
         if (feat) {
-          map.fitBounds(computeBbox(feat.geometry), { padding: 80, maxZoom: 10, duration: 700 });
+          map.fitBounds(computeBbox(feat.geometry), { padding: 80, maxZoom: 12, duration: 700 });
           showFeatureInfo(feat.properties, true);
         }
       });
@@ -604,7 +700,117 @@ function renderRanking(layer) {
   renderList('rank-top', top5);
   renderList('rank-bottom', bottom5);
 }
-</script>
 
+// =============================================================================
+// TOGGLE BUTTONS
+// =============================================================================
+function setupLayerToggle() {
+  document.querySelectorAll('.layer-toggle button').forEach((btn) => {
+    btn.addEventListener('click', () => switchLayer(btn.dataset.layer, true));
+  });
+}
+
+// =============================================================================
+// ADRES-ZOEK (PDOK Locatieserver)
+// =============================================================================
+let searchTimer = null;
+function setupSearch() {
+  const input = document.getElementById('search-input');
+  const results = document.getElementById('search-results');
+
+  input.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    const q = input.value.trim();
+    if (q.length < 3) { results.hidden = true; return; }
+    searchTimer = setTimeout(() => doSearch(q), 220);
+  });
+  input.addEventListener('focus', () => {
+    if (results.children.length) results.hidden = false;
+  });
+  input.addEventListener('blur', () => {
+    setTimeout(() => results.hidden = true, 150);   // delay om click op item toe te laten
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { input.value = ''; results.hidden = true; }
+  });
+}
+
+async function doSearch(q) {
+  const url = `https://api.pdok.nl/bzk/locatieserver/search/v3_1/suggest?q=${encodeURIComponent(q)}&rows=8&fq=type:(adres OR woonplaats OR gemeente OR wijk OR buurt OR postcode)`;
+  try {
+    const r = await fetch(url);
+    const d = await r.json();
+    const docs = d.response?.docs || [];
+    const results = document.getElementById('search-results');
+    if (!docs.length) { results.hidden = true; return; }
+    results.innerHTML = docs.map(doc => `
+      <li data-id="${escapeHtml(doc.id)}">
+        ${escapeHtml(doc.weergavenaam)}
+        <span style="opacity:.5;font-size:.78rem;margin-left:.4rem">${escapeHtml(doc.type)}</span>
+      </li>
+    `).join('');
+    results.querySelectorAll('li').forEach(li => {
+      li.addEventListener('click', () => selectSearchResult(li.dataset.id));
+    });
+    results.hidden = false;
+  } catch (err) {
+    console.error('[kaart] search faalde:', err);
+  }
+}
+
+async function selectSearchResult(id) {
+  const r = await fetch(`https://api.pdok.nl/bzk/locatieserver/search/v3_1/lookup?id=${encodeURIComponent(id)}`);
+  const d = await r.json();
+  const doc = d.response?.docs?.[0];
+  if (!doc) return;
+  const m = (doc.centroide_ll || '').match(/POINT\(([\d.-]+)\s+([\d.-]+)\)/);
+  if (!m) return;
+  const lon = parseFloat(m[1]), lat = parseFloat(m[2]);
+  map.flyTo({ center: [lon, lat], zoom: 12.5, duration: 1200 });
+  document.getElementById('search-input').value = doc.weergavenaam || '';
+  document.getElementById('search-results').hidden = true;
+  // Auto-switch naar buurt-niveau zodra we ingezoomd zijn
+  setTimeout(() => switchLayer('buurten'), 1200);
+}
+
+// =============================================================================
+// INIT
+// =============================================================================
+async function init() {
+  try {
+    // Initial loads — provincie + gemeente upfront (samen ~1.3MB)
+    await Promise.all([loadProvincies(), loadGemeenten()]);
+    await whenMapReady();
+    console.info('[kaart] map style loaded');
+
+    ensureSourceAndLayers('provincies');
+    ensureSourceAndLayers('gemeenten');
+    // Toon initieel de provincie-laag
+    map.setLayoutProperty('provincies-fill',   'visibility', 'visible');
+    map.setLayoutProperty('provincies-outline','visibility', 'visible');
+
+    setupLayerToggle();
+    setupSearch();
+    renderRanking('provincies');
+
+    // Auto-switch op zoom (kan worden uitgeschakeld zodra user op een toggle drukt)
+    map.on('zoomend', autoSwitchOnZoom);
+    // Bij pan op buurt-niveau: laad ontbrekende provincies
+    map.on('moveend', () => {
+      if (activeLayer === 'buurten') loadBuurtenForViewport();
+    });
+    console.info('[kaart] init compleet');
+  } catch (err) {
+    console.error('[kaart] init faalde:', err);
+    const el = document.getElementById('feat-info');
+    if (el) {
+      el.classList.remove('empty');
+      el.innerHTML = `<div class="feat-name">⚠️ Kaart laden faalde</div>
+                      <div class="feat-extra">${err.message || err}</div>`;
+    }
+  }
+}
+init();
+</script>
 </body>
 </html>
