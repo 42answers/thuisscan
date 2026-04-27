@@ -2121,17 +2121,24 @@ function renderCover(cover) {
   setText('cover-number', cover.score);
   setText('cover-label', cover.label ? capitalize(cover.label) : '');
   const betekenis = cover.betekenis || '';
-  const prefix = cover.vs_nl_gem === 'rond'
-    ? 'Exact op NL-gemiddelde.'
-    : `${capitalize(cover.vs_nl_gem)} NL-gemiddelde.`;
   // Empirisch percentiel uit ECDF (1556-sample) — eerlijker dan de officiële
   // klasse 1-9 die rechtsscheef is (klasse 9 = top 13% NL). Twee plekken:
-  //   1. Prominente badge naast het grote score-getal (cover-percentile) —
-  //      direct zichtbaar zonder de zin eronder te lezen
-  //   2. Inline in de betekenis-zin (cover-meaning) — fallback / context
+  //   1. Prominente badge in de score-block (cover-percentile)
+  //   2. Inline in de betekenis-zin (cover-meaning) — als 1e zin
+  // Als er percentile is, vervangt die de generieke "Boven NL-gemiddelde."-prefix
+  // (die zegt minder dan "Top 7% van Nederland.").
   renderPercentileBadge(cover.top_pct_nl, cover.score);
   const ctx = formatTopPct(cover.top_pct_nl);
-  setText('cover-meaning', ctx ? `${prefix} ${ctx} ${betekenis}` : `${prefix} ${betekenis}`);
+  let meaningText;
+  if (ctx) {
+    meaningText = `${ctx} ${betekenis}`;
+  } else {
+    const prefix = cover.vs_nl_gem === 'rond'
+      ? 'Exact op NL-gemiddelde.'
+      : `${capitalize(cover.vs_nl_gem)} NL-gemiddelde.`;
+    meaningText = `${prefix} ${betekenis}`;
+  }
+  setText('cover-meaning', meaningText);
   // Vul de balk met het echte percentiel-below (% van NL met lagere score),
   // niet meer met de lineaire (klasse-1)/8 mapping. Voor afw=+0.27 (Damrak)
   // wordt dat 96% i.p.v. 100% — visueel correcter.
@@ -2173,21 +2180,25 @@ function renderCover(cover) {
   renderCoverOntwikkeling(cover.ontwikkeling);
 }
 
-// Format "Top X% van Nederland" — handelt edge cases:
-//   - top_pct ≥ 50  → "minder dan 50% van NL ligt hierboven" (te neutraal, skip)
-//   - top_pct ≥ 5   → "Top 7% van Nederland."
-//   - top_pct ≥ 0.5 → "Top 1% van Nederland."
-//   - top_pct < 0.5 → "Top <1% van Nederland." (sample-tail-uiteinde)
+// Format inline-zin variant van het percentiel — symmetrisch:
+//   bovenkant: "Top X% van Nederland."
+//   onderkant: "Onderste X% van Nederland."
+// Edge cases:
+//   - top_pct < 0.5  → "Top <1% van Nederland." (sample-tail)
+//   - top_pct < 1    → "Top 1% van Nederland."
+//   - top_pct ≤ 50   → "Top X% van Nederland."
+//   - top_pct ≥ 99.5 → "Onderste <1% van Nederland."
+//   - top_pct > 50   → "Onderste X% van Nederland."  (X = 100 - top_pct)
 function formatTopPct(topPct) {
   if (topPct == null || isNaN(topPct)) return '';
-  if (topPct >= 50) {
-    // Onderkant — formuleer als "boven X%"
-    const below = (100 - topPct).toFixed(0);
-    return `Boven ${below}% van Nederland scoort lager.`;
-  }
   if (topPct < 0.5) return 'Top <1% van Nederland.';
   if (topPct < 1)   return 'Top 1% van Nederland.';
-  return `Top ${Math.round(topPct)}% van Nederland.`;
+  if (topPct <= 50) return `Top ${Math.round(topPct)}% van Nederland.`;
+  // Onderkant: spiegel
+  const onderste = 100 - topPct;
+  if (onderste < 0.5) return 'Onderste <1% van Nederland.';
+  if (onderste < 1)   return 'Onderste 1% van Nederland.';
+  return `Onderste ${Math.round(onderste)}% van Nederland.`;
 }
 
 // Prominente percentiel-badge in de cover-score block (naast het '/9'-getal).
@@ -2203,7 +2214,9 @@ function renderPercentileBadge(topPct, score) {
     el.hidden = true;
     return;
   }
-  // Tekst: "Top 7%" / "Top <1%" / "Bottom 12%" / "NL-gemiddeld"
+  // Chip-tekst: "Top 7% NL" / "Top <1% NL" / "Onderste 7% NL" / "Onderste <1% NL"
+  // Symmetrisch — geen Engelse 'Bottom' meer. NL-readers herkennen "Top X%"
+  // direct (ingeburgerd Engels-NL), "Onderste X%" is de natuurlijke spiegel.
   let text;
   let level;
   if (topPct < 0.5) {
@@ -2215,11 +2228,15 @@ function renderPercentileBadge(topPct, score) {
   } else if (topPct <= 50) {
     text = `Top ${Math.round(topPct)}% NL`;
     level = 'neutral';
-  } else if (topPct >= 95) {
-    text = `Bottom ${Math.max(1, Math.round(100 - topPct))}% NL`;
-    level = 'warn';
   } else {
-    text = `Bottom ${Math.round(100 - topPct)}% NL`;
+    const onderste = 100 - topPct;
+    if (onderste < 0.5) {
+      text = 'Onderste <1% NL';
+    } else if (onderste < 1) {
+      text = 'Onderste 1% NL';
+    } else {
+      text = `Onderste ${Math.round(onderste)}% NL`;
+    }
     level = 'warn';
   }
   el.innerHTML = `<span class="cover-percentile-chip cover-pct-${level}">${escape(text)}</span>`;

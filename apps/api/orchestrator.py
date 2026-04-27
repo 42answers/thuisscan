@@ -1855,12 +1855,16 @@ def _build_cover(l: Optional[leefbaarometer.LeefbaarheidScore]) -> dict:
                 f"lager dan de andere dimensies."
             )
 
-    # Genuanceerde betekenis: vervang de generieke tekst als er grote spread is
+    # Override de officiële schaal-betekenis ALLEEN bij Damrak-pattern:
+    # hoge totaalscore (≥6) + één zwakke sub die compensatie krijgt van
+    # andere sterkere subs. Bij Bijlmer-pattern (totaal ≤5 én zwakke sub)
+    # is er geen compensatie — alles is gewoon zwak — dan houden we de
+    # officiële SCHAAL-betekenis ("Geen probleembuurt..." etc.) want de
+    # waarschuwingsstrook eronder geeft het zwakke-sub-detail al.
     betekenis = l.betekenis
-    if waarschuwing_severity == "strong":
+    if waarschuwing_severity == "strong" and l.score >= 6:
         betekenis = (
-            "Hoge totaalscore, maar niet alle aspecten zijn even sterk. "
-            "Lees de uitsplitsing hieronder voordat je conclusies trekt."
+            "Niet alle aspecten zijn even sterk — bekijk de losse scores hieronder."
         )
 
     # Grid-vs-buurt verschil, helder verwoord voor UI.

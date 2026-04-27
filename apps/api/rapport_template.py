@@ -101,10 +101,10 @@ def euro(v):
 
 
 def _fmt_top_pct(top_pct):
-    """Empirisch percentiel → leesbare 'Top X% van Nederland' tekst.
+    """Empirisch percentiel → leesbare 'Top X% van Nederland' (boven gem.)
+    of 'Onderste X% van Nederland' (onder gem.) tekst.
 
-    Spiegel van formatTopPct() in apps/web/app.js. None / >50% geeft
-    leeg (= dan toont de cover liever 'onder NL-gem').
+    Spiegel van formatTopPct() in apps/web/app.js — symmetrisch, geen Engels.
     """
     if top_pct is None:
         return ""
@@ -112,13 +112,19 @@ def _fmt_top_pct(top_pct):
         p = float(top_pct)
     except (TypeError, ValueError):
         return ""
-    if p >= 50:
-        return ""    # onderkant — niet als "top" formuleren
     if p < 0.5:
         return "Top &lt;1% van Nederland"
     if p < 1:
         return "Top 1% van Nederland"
-    return f"Top {round(p)}% van Nederland"
+    if p <= 50:
+        return f"Top {round(p)}% van Nederland"
+    # Onderkant — spiegel
+    onderste = 100 - p
+    if onderste < 0.5:
+        return "Onderste &lt;1% van Nederland"
+    if onderste < 1:
+        return "Onderste 1% van Nederland"
+    return f"Onderste {round(onderste)}% van Nederland"
 
 
 def _render_balans_waarschuwing(text, severity):
@@ -155,10 +161,16 @@ def _render_percentile_chip(top_pct):
         text, level = f"Top {round(p)}% NL", "good"
     elif p <= 50:
         text, level = f"Top {round(p)}% NL", "neutral"
-    elif p >= 95:
-        text, level = f"Bottom {max(1, round(100 - p))}% NL", "warn"
     else:
-        text, level = f"Bottom {round(100 - p)}% NL", "warn"
+        # Onderkant — spiegel ('Onderste X% NL'), geen Engelse 'Bottom'.
+        onderste = 100 - p
+        if onderste < 0.5:
+            text = "Onderste &lt;1% NL"
+        elif onderste < 1:
+            text = "Onderste 1% NL"
+        else:
+            text = f"Onderste {round(onderste)}% NL"
+        level = "warn"
     return f'<div class="leef-pct leef-pct-{level}">{text}</div>'
 
 def fmt_pct(v, signed=True):

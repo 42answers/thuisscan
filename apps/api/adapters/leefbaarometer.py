@@ -99,17 +99,21 @@ class LeefbaarheidScore:
     ontwikkeling_lang: Optional[Ontwikkeling] = None    # 10 jaar
 
 
-# Schaal 1-9 conform officiele Leefbaarometer-categorieën
+# Schaal 1-9 conform officiele Leefbaarometer-categorieën.
+# Beschrijvingen zijn bewust kort en jargon-vrij — ze worden direct na de
+# percentile-zin getoond op de cover, dus moeten zonder context begrijpelijk
+# zijn voor een gewone koper (geen "achterstandsproblematiek", "wijk-in-
+# ontwikkeling", "sociaal-economisch zwakker", "top-percentiel" etc.).
 SCHAAL = {
-    1: ("zeer onvoldoende",       "warn",    "Grote achterstandsproblematiek: criminaliteit, leegstand, lage sociale samenhang."),
-    2: ("ruim onvoldoende",       "warn",    "Meerdere leefbaarheidsproblemen; aandachtsgebied in het gemeentelijk beleid."),
-    3: ("onvoldoende",            "warn",    "Onder het NL-gemiddelde; typische sociaal-economisch zwakkere wijk."),
-    4: ("zwak",                   "neutral", "Licht onder gemiddeld; hoor je 'wijk-in-ontwikkeling' spreken."),
-    5: ("voldoende",              "neutral", "Precies op het Nederlandse gemiddelde."),
-    6: ("ruim voldoende",         "neutral", "Iets boven gemiddeld; prettige, stabiele wijk."),
-    7: ("goed",                   "good",    "Duidelijk bovengemiddelde leefbaarheid."),
-    8: ("zeer goed",              "good",    "Sterke samenhang van woningen, voorzieningen, sociale mix."),
-    9: ("uitstekend",             "good",    "Top-percentiel van Nederland; gewilde woonomgeving."),
+    1: ("zeer onvoldoende",       "warn",    "Veel problemen op straat — criminaliteit, leegstand en weinig contact tussen bewoners."),
+    2: ("ruim onvoldoende",       "warn",    "Op meerdere vlakken onder de maat: overlast, voorzieningen of de staat van de woningen."),
+    3: ("onvoldoende",            "warn",    "Merkbare minpunten in voorzieningen of overlast vergeleken met de meeste Nederlandse buurten."),
+    4: ("zwak",                   "neutral", "Geen probleembuurt, maar ook geen toplocatie — vaak betaalbaar voor wat je krijgt."),
+    5: ("voldoende",              "neutral", "Een gewone Nederlandse buurt — niets opvallend goed of slecht."),
+    6: ("ruim voldoende",         "neutral", "Prettige stabiele buurt zonder grote minpunten."),
+    7: ("goed",                   "good",    "Mensen wonen hier graag en blijven lang."),
+    8: ("zeer goed",              "good",    "Sterke buurt: voorzieningen, veiligheid en bewonersmix kloppen allemaal."),
+    9: ("uitstekend",             "good",    "Een van de meest gewilde plekken om te wonen in Nederland."),
 }
 
 
