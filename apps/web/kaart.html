@@ -308,27 +308,46 @@ const map = new maplibregl.Map({
 map.addControl(new maplibregl.NavigationControl(), 'top-right');
 
 // ------- Color expression -------
-// Gebaseerd op continue 'afw'. Doorlopende rood→geel→groen schaal.
+// Step-buckets ipv interpolate — robuuster (interpolate kan stilletjes falen
+// op ontbrekende waarden of edge cases). 'to-number' coerce zorgt dat string
+// afw-waarden ook werken; 0 als fallback bij missing.
 const COLOR_EXPRESSION = [
-  'interpolate', ['linear'], ['get', 'afw'],
-  -0.30, '#a14a3a',
-  -0.10, '#c47a4f',
-   0.00, '#e8e2c5',
-   0.10, '#88c947',
-   0.30, '#1d7a56',
+  'step',
+  ['to-number', ['get', 'afw'], 0],
+  '#a14a3a',          // -∞   .. -0.10  zeer slecht
+  -0.10, '#c47a4f',   // -0.10 .. -0.03  slecht
+  -0.03, '#dab26b',   // -0.03 ..  0.03  iets onder
+   0.03, '#cdd97e',   //  0.03 ..  0.10  iets boven
+   0.10, '#88c947',   //  0.10 ..  0.30  goed
+   0.30, '#1d7a56',   //  0.30 ..        zeer goed
 ];
 
 // ------- Geo-data laden -------
 let provData = null, gemData = null;
 let activeLayer = 'provincies';
 
-// Wacht tot zowel de map ÉN de geojsons binnen zijn — anders mist de
-// addSource/addLayer call (race tussen Promise.all en map.on('load')).
-async function whenMapReady() {
-  if (map.loaded() && map.isStyleLoaded()) return;
+// Wacht tot de map style geladen is. MapLibre's 'load' vuurt 1×; als wij
+// pas later subscriben dan miss we 'm. Dus check eerst isStyleLoaded(),
+// anders luister op style.load EN als fallback poll elke 50ms.
+function whenMapReady() {
   return new Promise((resolve) => {
-    if (map.loaded() && map.isStyleLoaded()) return resolve();
-    map.once('load', resolve);
+    if (map.isStyleLoaded()) {
+      resolve();
+      return;
+    }
+    let resolved = false;
+    const done = () => {
+      if (resolved) return;
+      resolved = true;
+      resolve();
+    };
+    map.once('load', done);
+    map.once('style.load', done);
+    // Defensieve fallback — sommige MapLibre-versies vuren noch op tijd
+    const poll = setInterval(() => {
+      if (map.isStyleLoaded()) { clearInterval(poll); done(); }
+    }, 50);
+    setTimeout(() => clearInterval(poll), 5000);
   });
 }
 
@@ -394,6 +413,17 @@ async function init() {
     renderRanking('provincies');
     setupLayerToggle();
     console.info('[kaart] init compleet');
+
+    // Defensief — log of de layers daadwerkelijk bestaan + visibility-status
+    ['prov-fill', 'prov-outline', 'gem-fill', 'gem-outline'].forEach((id) => {
+      const layer = map.getLayer(id);
+      if (!layer) {
+        console.error(`[kaart] LAYER ${id} ONTBREEKT na addLayer!`);
+      } else {
+        const vis = map.getLayoutProperty(id, 'visibility') || 'visible';
+        console.info(`[kaart] layer ${id} OK · visibility=${vis}`);
+      }
+    });
   } catch (err) {
     console.error('[kaart] init faalde:', err);
     const el = document.getElementById('feat-info');
