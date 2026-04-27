@@ -88,13 +88,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "style-src 'self' https://unpkg.com https://fonts.googleapis.com 'unsafe-inline'; "
                 "img-src 'self' data: blob: https://*.openstreetmap.org https://*.pdok.nl "
                     "https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com "
-                    "https://*.basemaps.cartocdn.com; "
+                    "https://*.basemaps.cartocdn.com "
+                    # BZK WMS — 100m leefbaarheids-grid tile-overlay op /kaart
+                    "https://geo.leefbaarometer.nl; "
                 "font-src 'self' https://fonts.gstatic.com data:; "
                 "connect-src 'self' https://api.pdok.nl https://*.openstreetmap.org "
                     "https://service.pdok.nl https://*.overheid.nl https://service.omgevingswet.overheid.nl "
                     "https://maps.googleapis.com https://*.basemaps.cartocdn.com "
                     # MapLibre source-map fetch op error/devtools
-                    "https://unpkg.com; "
+                    "https://unpkg.com "
+                    # BZK WMS GetFeatureInfo voor klik-tooltip op 100m grid
+                    "https://geo.leefbaarometer.nl; "
                 "frame-src https://www.google.com; "  # Google Maps embed
                 # MapLibre GL maakt een Web Worker via blob: voor tile-rendering;
                 # zonder expliciete worker-src valt CSP terug op script-src dat

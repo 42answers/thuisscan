@@ -310,6 +310,11 @@ const ZOOM_THRESHOLDS = {
   wijken:     { min: 9.5,  max: 11.5 },
   buurten:    { min: 11.5, max: 22   },
 };
+// Bij zoom ≥ deze: BZK 100m grid-tiles overlay zichtbaar; buurt-fill verbergen
+// (om kleur-clash te voorkomen — BZK gebruikt eigen klasse-kleuren).
+const GRID_ZOOM = 13;
+const BZK_WMS = 'https://geo.leefbaarometer.nl/wms';
+const BZK_GRID_LAYER = 'lbm3:clippedgridscore24';
 const COLOR_EXPRESSION = [
   'step',
   ['to-number', ['get', 'afw'], 0],
@@ -342,13 +347,35 @@ const map = new maplibregl.Map({
         tileSize: 256,
         attribution: '© OpenStreetMap contributors © CARTO',
       },
+      // BZK Leefbaarometer 100m-grid via WMS — wordt pas zichtbaar boven
+      // GRID_ZOOM. tileSize 256 + bbox-template = klassiek WMS-pattern.
+      'lbm-grid': {
+        type: 'raster',
+        tiles: [
+          `${BZK_WMS}?service=WMS&version=1.1.1&request=GetMap`
+          + `&layers=${encodeURIComponent(BZK_GRID_LAYER)}`
+          + `&styles=&bbox={bbox-epsg-3857}&width=256&height=256`
+          + `&srs=EPSG:3857&format=image/png&transparent=true`,
+        ],
+        tileSize: 256,
+        attribution: '© Leefbaarometer 3.0 (BZK)',
+      },
     },
-    layers: [{ id: 'carto', type: 'raster', source: 'carto', minzoom: 0, maxzoom: 22 }],
+    layers: [
+      { id: 'carto', type: 'raster', source: 'carto', minzoom: 0, maxzoom: 22 },
+      // 100m grid overlay — alleen ingeschakeld bij hoge zoom; opacity 0.7
+      // zodat de basemap eronder licht doorschijnt voor straat-context.
+      {
+        id: 'lbm-grid', type: 'raster', source: 'lbm-grid',
+        minzoom: GRID_ZOOM, maxzoom: 22,
+        paint: { 'raster-opacity': 0.72 },
+      },
+    ],
   },
   center: [5.3, 52.2],
   zoom: 6.6,
   minZoom: 5,
-  maxZoom: 14,
+  maxZoom: 17,    // hoger plafond zodat 100m grid bruikbaar is
 });
 map.addControl(new maplibregl.NavigationControl(), 'top-right');
 
@@ -523,6 +550,27 @@ async function switchLayer(layerKey, fromUser = false) {
     btn.classList.toggle('active', btn.dataset.layer === layerKey);
   });
   renderRanking(layerKey);
+  applyGridZoomVisibility();
+}
+
+// Bij hoge zoom: BZK 100m grid komt automatisch in zicht (via minzoom).
+// We verbergen dan ook de buurt-fill om kleur-clash te voorkomen — alleen
+// outline blijft zodat je de buurt-grenzen ziet over het grid heen.
+// Plus: cursor naar 'crosshair' om aan te geven dat klik mogelijk is.
+function applyGridZoomVisibility() {
+  const zoomedIn = map.getZoom() >= GRID_ZOOM;
+  if (zoomedIn && activeLayer === 'buurten' && map.getLayer('buurten-fill')) {
+    map.setLayoutProperty('buurten-fill', 'visibility', 'none');
+  } else if (!zoomedIn && activeLayer === 'buurten' && map.getLayer('buurten-fill')) {
+    map.setLayoutProperty('buurten-fill', 'visibility', 'visible');
+  }
+  // Visuele hint in het feat-info paneel als nog niets geselecteerd is
+  const el = document.getElementById('feat-info');
+  if (el && el.classList.contains('empty')) {
+    el.textContent = zoomedIn
+      ? 'Klik op een 100m × 100m vakje voor exacte leefbaarheidscijfers'
+      : 'Hover of klik op een gebied…';
+  }
 }
 
 function setBtnLoading(btnId, loading) {
@@ -597,6 +645,91 @@ function computeBbox(geom) {
   }
   walk(geom.coordinates);
   return [[minLon, minLat], [maxLon, maxLat]];
+}
+
+// =============================================================================
+// 100M GRID CLICK — WMS GetFeatureInfo
+// =============================================================================
+// Bij hoge zoom (≥ GRID_ZOOM) is er geen vector-feature om te detecteren.
+// We doen een directe WMS-call met de geklikte coordinaat als bbox.
+async function onMapClickForGrid(e) {
+  if (map.getZoom() < GRID_ZOOM) return;
+  // Niet vuren als click op een vector-feature was (die hebben hun eigen handler)
+  const features = map.queryRenderedFeatures(e.point, {
+    layers: ['provincies-fill', 'gemeenten-fill', 'wijken-fill', 'buurten-fill']
+              .filter(id => map.getLayer(id)),
+  });
+  if (features.length) return;
+  await fetchGridInfo(e.lngLat.lng, e.lngLat.lat);
+}
+
+async function fetchGridInfo(lon, lat) {
+  // BZK WMS accepteert EPSG:4326 directly. We maken een tiny bbox van ~50m
+  // rond het klik-punt en query met width=3, x=1, y=1.
+  const half = 0.0003;     // ~30m in graden
+  const bbox = `${lon - half},${lat - half},${lon + half},${lat + half}`;
+  const url = `${BZK_WMS}?service=WMS&version=1.1.1&request=GetFeatureInfo`
+    + `&layers=${encodeURIComponent(BZK_GRID_LAYER)}`
+    + `&query_layers=${encodeURIComponent(BZK_GRID_LAYER)}`
+    + `&bbox=${bbox}&srs=EPSG:4326&width=3&height=3&x=1&y=1`
+    + `&info_format=application/json`;
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return;
+    const d = await r.json();
+    const f = d.features?.[0];
+    if (!f) {
+      // Klik op water of niet-bewoond gebied
+      const el = document.getElementById('feat-info');
+      el.classList.remove('empty');
+      el.innerHTML = `<div class="feat-name">Geen leefbaarheidsdata</div>
+                      <div class="feat-extra">Klik op een bewoond 100m vakje (geen water/natuur).</div>`;
+      return;
+    }
+    const p = f.properties || {};
+    const afw = parseFloat(p.afw);
+    showFeatureInfo({
+      naam: '100m × 100m vakje',
+      gemeente: p.gemeente,
+      klasse: p.kscore,
+      afw: isNaN(afw) ? null : afw,
+      top_pct_nl: isNaN(afw) ? null : computeTopPct(afw),
+      raw: {
+        afw, kscore: p.kscore,
+        kwon: p.kwon, kfys: p.kfys, kvrz: p.kvrz, ksoc: p.ksoc, konv: p.konv,
+        won: parseFloat(p.won), fys: parseFloat(p.fys),
+        vrz: parseFloat(p.vrz), soc: parseFloat(p.soc), onv: parseFloat(p.onv),
+      },
+    }, true);
+  } catch (err) {
+    console.error('[kaart] WMS GetFeatureInfo faalde:', err);
+  }
+}
+
+// Berekent een ruwe top-pct schatting in browser ipv ECDF-call.
+// Stap-functie die ongeveer overeenkomt met onze 1556-sample ECDF.
+// (Voor exacte percentile-mapping zou een aparte JSON-export van de
+// ECDF nodig zijn — dat is fase 2-werk; deze approximatie volstaat.)
+function computeTopPct(afw) {
+  if (afw == null || isNaN(afw)) return null;
+  // Lookup-tabel uit onze sample-data (afw → top_pct), sterk vereenvoudigd
+  const lut = [
+    [-0.40, 99.8], [-0.20, 93.9], [-0.10, 84.7], [-0.05, 75.0],
+    [ 0.00, 60.6], [ 0.05, 45.0], [ 0.10, 29.5], [ 0.15, 18.0],
+    [ 0.21,  7.0], [ 0.27,  3.4], [ 0.40,  0.3], [ 0.55,  0.1],
+  ];
+  // Interpolate
+  if (afw <= lut[0][0]) return 100 - lut[0][1];
+  if (afw >= lut[lut.length-1][0]) return 100 - lut[lut.length-1][1];
+  for (let i = 0; i < lut.length - 1; i++) {
+    const [a0, p0] = lut[i], [a1, p1] = lut[i+1];
+    if (afw >= a0 && afw <= a1) {
+      const frac = (afw - a0) / (a1 - a0);
+      const pct_below = p0 + frac * (p1 - p0);
+      return Math.max(0, Math.min(100, 100 - pct_below));
+    }
+  }
+  return null;
 }
 
 // =============================================================================
@@ -795,10 +928,14 @@ async function init() {
 
     // Auto-switch op zoom (kan worden uitgeschakeld zodra user op een toggle drukt)
     map.on('zoomend', autoSwitchOnZoom);
+    map.on('zoomend', applyGridZoomVisibility);
     // Bij pan op buurt-niveau: laad ontbrekende provincies
     map.on('moveend', () => {
       if (activeLayer === 'buurten') loadBuurtenForViewport();
     });
+    // 100m grid heeft geen vector-features → click-handler op map ipv layer.
+    // Doet WMS GetFeatureInfo bij hoge zoom voor de chip-tooltip.
+    map.on('click', onMapClickForGrid);
     console.info('[kaart] init compleet');
   } catch (err) {
     console.error('[kaart] init faalde:', err);
