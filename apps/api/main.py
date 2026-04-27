@@ -94,6 +94,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                     "https://service.pdok.nl https://*.overheid.nl https://service.omgevingswet.overheid.nl "
                     "https://maps.googleapis.com https://*.basemaps.cartocdn.com; "
                 "frame-src https://www.google.com; "  # Google Maps embed
+                # MapLibre GL maakt een Web Worker via blob: voor tile-rendering;
+                # zonder expliciete worker-src valt CSP terug op script-src dat
+                # geen blob: bevat → kaart-fills renderen niet. Fix: blob: toestaan.
+                "worker-src 'self' blob:; "
                 "object-src 'none'; "
                 "base-uri 'self'; "
                 "form-action 'self'"
