@@ -1216,6 +1216,13 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 if WEB_DIR.exists():
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
+    # Mount /data zodat de leefbaarheidskaart (apps/web/data/lbm/*.geojson)
+    # rechtstreeks bereikbaar is — Netlify doet dit automatisch via static
+    # publish dir, Fly heeft expliciete mount nodig.
+    DATA_DIR = WEB_DIR / "data"
+    if DATA_DIR.exists():
+        app.mount("/data", StaticFiles(directory=DATA_DIR), name="data")
+
     # Cache-headers strategie:
     # - index.html: short cache (1 uur), valideren met etag
     # - styles.css/app.js: 1 dag cache met must-revalidate
@@ -1238,6 +1245,31 @@ if WEB_DIR.exists():
         """About-pagina — uitleg over Buurtscan, bronnen, doelgroep."""
         return FileResponse(
             WEB_DIR / "over.html",
+            headers={"Cache-Control": _HTML_CACHE},
+        )
+
+    @app.get("/voorwaarden")
+    async def serve_voorwaarden() -> FileResponse:
+        """Algemene voorwaarden (Mollie-onboarding ready)."""
+        return FileResponse(
+            WEB_DIR / "voorwaarden.html",
+            headers={"Cache-Control": _HTML_CACHE},
+        )
+
+    @app.get("/privacy")
+    async def serve_privacy() -> FileResponse:
+        """Privacyverklaring (AVG-conform)."""
+        return FileResponse(
+            WEB_DIR / "privacy.html",
+            headers={"Cache-Control": _HTML_CACHE},
+        )
+
+    @app.get("/kaart")
+    @app.get("/leefbaarheidskaart")
+    async def serve_kaart() -> FileResponse:
+        """Interactieve leefbaarheidskaart van Nederland (provincie + gemeente)."""
+        return FileResponse(
+            WEB_DIR / "kaart.html",
             headers={"Cache-Control": _HTML_CACHE},
         )
 

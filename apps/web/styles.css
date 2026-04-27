@@ -691,6 +691,23 @@ main {
   border-color: #f0cbbe;
   color: var(--weak);
 }
+/* Link naar de NL-leefbaarheidskaart, onderaan de cover */
+.cover-kaart-link {
+  margin: 1rem 0 0.4rem;
+  text-align: center;
+  font-size: 0.9rem;
+}
+.cover-kaart-link a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 1px dashed var(--accent);
+  padding-bottom: 1px;
+}
+.cover-kaart-link a:hover {
+  border-bottom-style: solid;
+}
+
 /* Mini-label onder de chip — maakt expliciet dat de % over leefbaarheid
    gaat (anders is 'Top 7% NL' ambigu). */
 .cover-percentile-caption {
