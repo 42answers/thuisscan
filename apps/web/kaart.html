@@ -322,18 +322,41 @@ const COLOR_EXPRESSION = [
 let provData = null, gemData = null;
 let activeLayer = 'provincies';
 
-Promise.all([
-  fetch('/data/lbm/provincies.geojson').then(r => r.json()),
-  fetch('/data/lbm/gemeenten.geojson').then(r => r.json()),
-]).then(([prov, gem]) => {
-  provData = prov;
-  gemData = gem;
+// Wacht tot zowel de map ÉN de geojsons binnen zijn — anders mist de
+// addSource/addLayer call (race tussen Promise.all en map.on('load')).
+async function whenMapReady() {
+  if (map.loaded() && map.isStyleLoaded()) return;
+  return new Promise((resolve) => {
+    if (map.loaded() && map.isStyleLoaded()) return resolve();
+    map.once('load', resolve);
+  });
+}
 
-  map.on('load', () => {
+async function init() {
+  try {
+    const [provResp, gemResp] = await Promise.all([
+      fetch('/data/lbm/provincies.geojson'),
+      fetch('/data/lbm/gemeenten.geojson'),
+    ]);
+    if (!provResp.ok) throw new Error(`provincies HTTP ${provResp.status}`);
+    if (!gemResp.ok)  throw new Error(`gemeenten HTTP ${gemResp.status}`);
+
+    // Voeg een numeric id toe aan elke feature — vereist voor feature-state
+    // (MapLibre's hover-effect via setFeatureState heeft een ID nodig per feature).
+    const prov = await provResp.json();
+    const gem = await gemResp.json();
+    prov.features.forEach((f, i) => f.id = i);
+    gem.features.forEach((f, i)  => f.id = i);
+    provData = prov;
+    gemData = gem;
+    console.info(`[kaart] geojsons OK: ${prov.features.length} provincies + ${gem.features.length} gemeenten`);
+
+    await whenMapReady();
+    console.info('[kaart] map style loaded — bronnen toevoegen');
+
     map.addSource('provincies', { type: 'geojson', data: prov });
     map.addSource('gemeenten',  { type: 'geojson', data: gem  });
 
-    // Provincie fill + outline + hover
     map.addLayer({
       id: 'prov-fill', type: 'fill', source: 'provincies',
       paint: {
@@ -347,8 +370,6 @@ Promise.all([
       id: 'prov-outline', type: 'line', source: 'provincies',
       paint: { 'line-color': '#ffffff', 'line-width': 1.2 },
     });
-
-    // Gemeente fill + outline (initially hidden)
     map.addLayer({
       id: 'gem-fill', type: 'fill', source: 'gemeenten',
       paint: {
@@ -369,11 +390,22 @@ Promise.all([
     setupHover('gem-fill', 'gemeenten');
     setupClick('prov-fill', 'provincies');
     setupClick('gem-fill', 'gemeenten');
-  });
 
-  renderRanking('provincies');
-  setupLayerToggle();
-});
+    renderRanking('provincies');
+    setupLayerToggle();
+    console.info('[kaart] init compleet');
+  } catch (err) {
+    console.error('[kaart] init faalde:', err);
+    const el = document.getElementById('feat-info');
+    if (el) {
+      el.classList.remove('empty');
+      el.innerHTML = `<div class="feat-name">⚠️ Kaart laden faalde</div>
+                      <div class="feat-extra">${err.message || err}</div>`;
+    }
+  }
+}
+
+init();
 
 // ------- Hover-state -------
 let hoverIdByLayer = { provincies: null, gemeenten: null };
