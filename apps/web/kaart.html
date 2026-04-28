@@ -393,8 +393,21 @@ const COLOR_EXPRESSION = [
   75, '#c47a4f',     // 75-90%      : oranje (onderste 25% — duidelijk zwak)
   90, '#a14a3a',     // 90-100%     : rood (onderste 10% — achterstandsgebied)
 ];
+// Fill-opacity met zoom-based dimming: provincie/gemeente/wijk constant 0.65,
+// buurt-fill specifiek faade-out tussen zoom 13-15 zodat BZK 100m grid de
+// dominante laag wordt. Hover blijft altijd 0.9.
 const FILL_OPACITY = [
   'case', ['boolean', ['feature-state', 'hover'], false], 0.9, 0.65,
+];
+// Buurt-specifiek: faade weg bij hoge zoom (cross-fade met BZK grid).
+const BUURT_FILL_OPACITY = [
+  'case', ['boolean', ['feature-state', 'hover'], false], 0.9,
+  ['interpolate', ['linear'], ['zoom'],
+    11, 0.65,
+    13, 0.65,
+    14, 0.40,
+    15, 0.15,
+  ],
 ];
 
 // =============================================================================
@@ -431,15 +444,20 @@ const map = new maplibregl.Map({
     },
     layers: [
       { id: 'carto', type: 'raster', source: 'carto', minzoom: 0, maxzoom: 22 },
-      // 100m grid overlay bij hoge zoom als SUBTIELE micro-textuur over
-      // onze buurt-fill heen. Lage opacity (0.35) zodat onze rood/groen-
-      // gradient van de buurt-laag dominant blijft — anders verdwijnt
-      // 'onderste 25%' visueel omdat BZK's eigen styling pas bij klasse
-      // ≤ 3 rood gebruikt, terwijl wij al bij afw < -0.03 rood maken.
+      // 100m grid overlay — cross-fade met onze buurt-fill tussen zoom 13-15.
+      // Op zoom 13: nog onzichtbaar (0). Op zoom 15+: dominant (0.75).
+      // Geeft een vloeiende detail-toename bij inzoomen.
       {
         id: 'lbm-grid', type: 'raster', source: 'lbm-grid',
         minzoom: GRID_ZOOM, maxzoom: 22,
-        paint: { 'raster-opacity': 0.35 },
+        paint: {
+          'raster-opacity': [
+            'interpolate', ['linear'], ['zoom'],
+            13, 0.0,
+            14, 0.45,
+            15, 0.75,
+          ],
+        },
       },
     ],
   },
@@ -496,7 +514,12 @@ function ensureSourceAndLayers(layerKey) {
   map.addSource(map_id, { type: 'geojson', data });
   map.addLayer({
     id: `${map_id}-fill`, type: 'fill', source: map_id,
-    paint: { 'fill-color': COLOR_EXPRESSION, 'fill-opacity': FILL_OPACITY },
+    paint: {
+      'fill-color': COLOR_EXPRESSION,
+      // Buurt-fill specifieke zoom-based fade naar transparant zodat BZK
+      // grid kan domineren bij hoge zoom; andere lagen constante opacity.
+      'fill-opacity': layerKey === 'buurten' ? BUURT_FILL_OPACITY : FILL_OPACITY,
+    },
     layout: { visibility: 'none' },
   });
   map.addLayer({
