@@ -422,12 +422,15 @@ const map = new maplibregl.Map({
     },
     layers: [
       { id: 'carto', type: 'raster', source: 'carto', minzoom: 0, maxzoom: 22 },
-      // 100m grid overlay — alleen ingeschakeld bij hoge zoom; opacity 0.7
-      // zodat de basemap eronder licht doorschijnt voor straat-context.
+      // 100m grid overlay bij hoge zoom als SUBTIELE micro-textuur over
+      // onze buurt-fill heen. Lage opacity (0.35) zodat onze rood/groen-
+      // gradient van de buurt-laag dominant blijft — anders verdwijnt
+      // 'onderste 25%' visueel omdat BZK's eigen styling pas bij klasse
+      // ≤ 3 rood gebruikt, terwijl wij al bij afw < -0.03 rood maken.
       {
         id: 'lbm-grid', type: 'raster', source: 'lbm-grid',
         minzoom: GRID_ZOOM, maxzoom: 22,
-        paint: { 'raster-opacity': 0.72 },
+        paint: { 'raster-opacity': 0.35 },
       },
     ],
   },
@@ -613,21 +616,17 @@ async function switchLayer(layerKey, fromUser = false) {
 }
 
 // Bij hoge zoom: BZK 100m grid komt automatisch in zicht (via minzoom).
-// We verbergen dan ook de buurt-fill om kleur-clash te voorkomen — alleen
-// outline blijft zodat je de buurt-grenzen ziet over het grid heen.
-// Plus: cursor naar 'crosshair' om aan te geven dat klik mogelijk is.
+// We laten de actieve vector-laag (buurt) ZICHTBAAR — onze rood/groen-
+// gradient blijft de hoofdkleur, BZK grid wordt subtiel micro-detail.
+// (Verbergen veroorzaakte dat 'onderste 25%' niet meer rood toonde,
+// want BZK kleurt alleen klasse ≤ 3 echt rood.)
 function applyGridZoomVisibility() {
   const zoomedIn = map.getZoom() >= GRID_ZOOM;
-  if (zoomedIn && activeLayer === 'buurten' && map.getLayer('buurten-fill')) {
-    map.setLayoutProperty('buurten-fill', 'visibility', 'none');
-  } else if (!zoomedIn && activeLayer === 'buurten' && map.getLayer('buurten-fill')) {
-    map.setLayoutProperty('buurten-fill', 'visibility', 'visible');
-  }
   // Visuele hint in het feat-info paneel als nog niets geselecteerd is
   const el = document.getElementById('feat-info');
   if (el && el.classList.contains('empty')) {
     el.textContent = zoomedIn
-      ? 'Klik op een 100m × 100m vakje voor exacte leefbaarheidscijfers'
+      ? 'Klik op een 100m × 100m vakje voor exacte cijfers'
       : 'Hover of klik op een gebied…';
   }
 }
