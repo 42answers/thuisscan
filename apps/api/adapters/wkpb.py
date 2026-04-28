@@ -104,8 +104,27 @@ async def fetch_wkpb_monumenten(
 
 
 def is_gemeentelijk_monument(beperkingen: list[WkpbBeperking]) -> bool:
+    """GWA = gemeentewet-aanwijzing gemeentelijk monument (pand-niveau)."""
     return any(b.grondslag_code == "GWA" for b in beperkingen)
 
 
 def is_rijksmonument(beperkingen: list[WkpbBeperking]) -> bool:
-    return any(b.grondslag_code in ("EWE", "EWA") for b in beperkingen)
+    """Strict: alleen EWE (Erfgoedwet rijksmonument PAND).
+
+    EWA = archeologisch rijksmonument — dat gaat over de BODEM onder een
+    groter gebied, niet over of dit pand zelf monument is. Inclusie van
+    EWA gaf false positives op b.v. Vondelstraat/Steenstraat/Driebergen
+    (gewone woningen op archeologisch beschermde grond).
+    """
+    return any(b.grondslag_code == "EWE" for b in beperkingen)
+
+
+def has_archeologisch_monument(beperkingen: list[WkpbBeperking]) -> bool:
+    """Aparte query — relevant voor graven/grondwerken, niet voor pand-bouw."""
+    return any(b.grondslag_code == "EWA" for b in beperkingen)
+
+
+def has_beschermd_gezicht_wkpb(beperkingen: list[WkpbBeperking]) -> bool:
+    """EWS = beschermd stads-/dorpsgezicht (gebied-niveau).
+    Backup voor RCE-detectie als die faalt."""
+    return any(b.grondslag_code == "EWS" for b in beperkingen)

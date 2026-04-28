@@ -51,7 +51,12 @@ specifiek perceel. Extraheer de volgende velden naar JSON:
 - kap_verplicht: true als kap verplicht is, false als plat dak toegestaan, null als onbekend
 - plat_dak_toegestaan: true/false, null als onbekend
 - bestemming: de hoofdbestemming (bv 'Wonen', 'Centrum-1', 'Gemengd-2'), null als niet aangegeven
-- toelichting: korte (max 30 woorden) Nederlandse samenvatting voor een leek
+- toelichting: max 25 woorden Nederlandse samenvatting voor een woningeigenaar.
+  ALLEEN regels die een woningeigenaar interesseren (max bouwhoogte, dakvorm,
+  uitbouw, bouwlagen, etc). LAAT WEG: dierhouderij, windturbines, terreinverlichting,
+  procedurele aanvraagvereisten, agrarische activiteiten, archeologie. Als alle
+  regels niet-woning-relevant zijn, schrijf: "Geen woning-specifieke bouwregels
+  in dit plan." Niet "procedurele bepalingen voor X, Y, Z".
 
 REGELS:
 1. Antwoord UITSLUITEND met één valide JSON-object, zonder uitleg ervoor/na.

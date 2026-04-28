@@ -1342,17 +1342,31 @@ def _build_woning(
         return {"available": False}
     is_woning = "woonfunctie" in pand.gebruiksdoel
     label = energielabel.label_klasse if energielabel else None
+    # BAG data-sanity: bouwjaar < 1500 of > huidige+5 = onbetrouwbaar
+    # (bekend BAG-issue: Damrak 201 had 1005, vermoedelijk typo voor 1905).
+    # Oppervlakte > 2000 m² voor 'wonen' = pand-totaal i.p.v. VBO; markeer
+    # als 'mogelijk pand-totaal'. Beide → 'value' blijft maar voeg 'flag' toe.
+    bj = pand.bouwjaar
+    bj_flag = None
+    if bj is not None and (bj < 1500 or bj > 2030):
+        bj_flag = "onbetrouwbaar"
+    opp = pand.oppervlakte_m2
+    opp_flag = None
+    if opp is not None and is_woning and opp > 2000:
+        opp_flag = "mogelijk_pand_totaal"
     out = {
         "available": True,
         "bouwjaar": {
-            "value": pand.bouwjaar,
+            "value": bj,
             "unit": None,
-            "ref": _as_ref(references.ref_bouwjaar(pand.bouwjaar)),
+            "flag": bj_flag,
+            "ref": _as_ref(references.ref_bouwjaar(bj)),
         },
         "oppervlakte": {
-            "value": pand.oppervlakte_m2,
+            "value": opp,
             "unit": "m²",
-            "ref": _as_ref(references.ref_oppervlakte(pand.oppervlakte_m2, is_woning)),
+            "flag": opp_flag,
+            "ref": _as_ref(references.ref_oppervlakte(opp, is_woning)),
         },
         "gebruiksdoel": pand.gebruiksdoel,
         "is_woning": is_woning,
