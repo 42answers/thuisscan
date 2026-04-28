@@ -766,26 +766,26 @@ async function fetchGridInfo(lon, lat) {
 }
 
 // Berekent een ruwe top-pct schatting in browser ipv ECDF-call.
-// Stap-functie die ongeveer overeenkomt met onze 1556-sample ECDF.
-// (Voor exacte percentile-mapping zou een aparte JSON-export van de
-// ECDF nodig zijn — dat is fase 2-werk; deze approximatie volstaat.)
+// LUT: [afw_drempel, top_pct_NL]. Voorbeeld:
+//   afw=+0.21 → top 7% NL (= zeer goed, bovenste 7%)
+//   afw=-0.10 → top 84.7% NL (= 84.7% van NL ligt hierboven, dus onderste ~15%)
 function computeTopPct(afw) {
   if (afw == null || isNaN(afw)) return null;
-  // Lookup-tabel uit onze sample-data (afw → top_pct), sterk vereenvoudigd
   const lut = [
     [-0.40, 99.8], [-0.20, 93.9], [-0.10, 84.7], [-0.05, 75.0],
     [ 0.00, 60.6], [ 0.05, 45.0], [ 0.10, 29.5], [ 0.15, 18.0],
     [ 0.21,  7.0], [ 0.27,  3.4], [ 0.40,  0.3], [ 0.55,  0.1],
   ];
-  // Interpolate
-  if (afw <= lut[0][0]) return 100 - lut[0][1];
-  if (afw >= lut[lut.length-1][0]) return 100 - lut[lut.length-1][1];
+  // Buiten LUT-range: clamp naar uiteinden
+  if (afw <= lut[0][0]) return lut[0][1];
+  if (afw >= lut[lut.length-1][0]) return lut[lut.length-1][1];
+  // Lineaire interpolatie tussen LUT-punten
   for (let i = 0; i < lut.length - 1; i++) {
     const [a0, p0] = lut[i], [a1, p1] = lut[i+1];
     if (afw >= a0 && afw <= a1) {
       const frac = (afw - a0) / (a1 - a0);
-      const pct_below = p0 + frac * (p1 - p0);
-      return Math.max(0, Math.min(100, 100 - pct_below));
+      const top_pct = p0 + frac * (p1 - p0);
+      return Math.max(0, Math.min(100, top_pct));
     }
   }
   return null;
@@ -799,16 +799,22 @@ function showFeatureInfo(p, persistent = false) {
   el.classList.remove('empty');
   const top = p.top_pct_nl;
   let chipText, chipLevel;
-  if (top == null)            { chipText = '—'; chipLevel = 'neutral'; }
-  else if (top < 0.5)         { chipText = 'Top <1% NL'; chipLevel = 'good'; }
-  else if (top < 10)          { chipText = `Top ${Math.round(top)}% NL`; chipLevel = 'good'; }
-  else if (top <= 50)         { chipText = `Top ${Math.round(top)}% NL`; chipLevel = 'neutral'; }
-  else {
+  if (top == null) {
+    chipText = '—'; chipLevel = 'neutral';
+  } else if (top < 0.5) {
+    chipText = 'Top <1% NL'; chipLevel = 'good';
+  } else if (top < 10) {
+    chipText = `Top ${Math.round(top)}% NL`; chipLevel = 'good';
+  } else if (top <= 50) {
+    chipText = `Top ${Math.round(top)}% NL`; chipLevel = 'neutral';
+  } else {
+    // Onder gemiddelde: 50-75% = neutral grijs (gewoon "iets onder"),
+    // > 75% = echt warn rood (achtergebleven locaties).
     const onderste = 100 - top;
     if (onderste < 0.5) chipText = 'Onderste <1% NL';
     else if (onderste < 1) chipText = 'Onderste 1% NL';
     else chipText = `Onderste ${Math.round(onderste)}% NL`;
-    chipLevel = 'warn';
+    chipLevel = (top > 75) ? 'warn' : 'neutral';
   }
   // Context: provincie/gemeente naam toevoegen
   let meta = '';
