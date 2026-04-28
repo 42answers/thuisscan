@@ -195,8 +195,10 @@
     }
     .legend .legend-bar {
       width: 200px; height: 10px; border-radius: 5px;
+      /* Percentile-aligned gradient: matcht de step-buckets van COLOR_EXPRESSION */
       background: linear-gradient(to right,
-        #a14a3a 0%, #c47a4f 25%, #e8e2c5 50%, #88c947 75%, #1d7a56 100%);
+        #a14a3a 0%, #c47a4f 10%, #e0c97f 25%,
+        #9bcc7a 50%, #3aa170 75%, #1d7a56 100%);
       margin-bottom: 0.25rem;
     }
     .legend .legend-labels {
@@ -374,15 +376,22 @@ const ZOOM_THRESHOLDS = {
 const GRID_ZOOM = 13;
 const BZK_WMS = 'https://geo.leefbaarometer.nl/wms';
 const BZK_GRID_LAYER = 'lbm3:clippedgridscore24';
+// Kleur op basis van empirisch PERCENTIEL (top_pct_nl), niet raw afw.
+// Reden: 'onderste 25%' is een populatie-percentile, geen absolute waarde —
+// een afw van -0.012 zit al in onderste 25% maar wordt door een afw-step
+// ten onrechte beige gekleurd. Percentile-buckets zorgen dat 'onderste 25%
+// = rood' visueel klopt met de chip-classificatie eronder.
+//
+// top_pct_nl: 0 = beste van NL, 100 = slechtste van NL
 const COLOR_EXPRESSION = [
   'step',
-  ['to-number', ['get', 'afw'], 0],
-  '#a14a3a',
-  -0.10, '#c47a4f',
-  -0.03, '#dab26b',
-   0.03, '#cdd97e',
-   0.10, '#88c947',
-   0.30, '#1d7a56',
+  ['to-number', ['get', 'top_pct_nl'], 50],
+  '#1d7a56',         // top 0-10%   : diepgroen (top decile)
+  10, '#3aa170',     // top 10-25%  : groen
+  25, '#9bcc7a',     // top 25-50%  : lichtgroen
+  50, '#e0c97f',     // 50-75%      : beige (onderste helft, geen alarm)
+  75, '#c47a4f',     // 75-90%      : oranje (onderste 25% — duidelijk zwak)
+  90, '#a14a3a',     // 90-100%     : rood (onderste 10% — achterstandsgebied)
 ];
 const FILL_OPACITY = [
   'case', ['boolean', ['feature-state', 'hover'], false], 0.9, 0.65,
