@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:    # handmatig trigger via `gh workflow run fly-deploy.yml`
 jobs:
   deploy:
     name: Deploy app
