@@ -808,13 +808,14 @@ function showFeatureInfo(p, persistent = false) {
   } else if (top <= 50) {
     chipText = `Top ${Math.round(top)}% NL`; chipLevel = 'neutral';
   } else {
-    // Onder gemiddelde: 50-75% = neutral grijs (gewoon "iets onder"),
-    // > 75% = echt warn rood (achtergebleven locaties).
+    // Onder NL-mediaan = altijd warn rood. Geen tussenkleur — een chip
+    // "Onderste 30% NL" hoort visueel verschillend te zijn van een chip
+    // "Top 30% NL" zodat de lezer in één blik ziet aan welke kant je staat.
     const onderste = 100 - top;
     if (onderste < 0.5) chipText = 'Onderste <1% NL';
     else if (onderste < 1) chipText = 'Onderste 1% NL';
     else chipText = `Onderste ${Math.round(onderste)}% NL`;
-    chipLevel = (top > 75) ? 'warn' : 'neutral';
+    chipLevel = 'warn';
   }
   // Context: provincie/gemeente naam toevoegen
   let meta = '';
