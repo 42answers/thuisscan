@@ -120,6 +120,15 @@
     footer a { color: var(--accent); text-decoration: none; }
     footer a:hover { text-decoration: underline; }
   </style>
+
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-SKXC22Q6JB"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-SKXC22Q6JB');
+  </script>
 </head>
 <body>
   <header class="topbar">
@@ -173,16 +182,16 @@
           <td>Idem: 30 dagen.</td>
         </tr>
         <tr>
-          <td><strong>Geanonimiseerde page-views</strong></td>
-          <td>Inzicht in welke pagina's worden bekeken en hoe vaak. Geen cookies, geen tracking-IDs.</td>
-          <td>90 dagen geaggregeerd, daarna alleen totalen per dag.</td>
+          <td><strong>Page-views via Google Analytics 4</strong></td>
+          <td>Inzicht in welke pagina's worden bekeken, vanuit welk land, op welk apparaat, en welke flows mensen volgen. Geen koppeling aan persoonsgegevens. We gebruiken IP-anonimiseren (Google's standaard).</td>
+          <td>14 maanden (Google's standaard), daarna geaggregeerde totalen.</td>
         </tr>
       </tbody>
     </table>
 
     <h2><span class="num">2.</span> Wat we <em style="color:var(--accent)">niet</em> verzamelen</h2>
     <ul>
-      <li><strong>Geen tracking-cookies</strong> — geen Google Analytics, geen Facebook-pixel, geen marketing-cookies. Alléén essentiële technische cookies (session) bij actieve flows.</li>
+      <li><strong>Geen Facebook-pixel of marketing-cookies</strong> — we plaatsen alleen Google Analytics 4 voor anoniem inzicht in pageviews; geen advertentie-tracking, geen retargeting.</li>
       <li><strong>Geen profielen</strong> — we koppelen je e-mail niet aan eerdere bezoeken, niet aan je IP, niet aan welke andere adressen je hebt opgevraagd.</li>
       <li><strong>Geen verkoop aan derden</strong> — we delen je gegevens niet met databrokers, makelaars, gemeenten of andere partijen voor commerciële doeleinden.</li>
       <li><strong>Geen bewoners-data</strong> — Buurtscan toont uitsluitend pand- en buurtdata uit publieke registers; geen persoonsgegevens van eigenaren of bewoners van het opgevraagde adres.</li>
@@ -203,6 +212,7 @@
     <ul>
       <li><strong>Mollie B.V.</strong> (Amsterdam) — betalingen verwerken. Mollie krijgt het bedrag en je betaalmethode-gegevens; wij krijgen alleen de payment-ID. <a href="https://www.mollie.com/privacy" target="_blank" rel="noopener">Mollie privacybeleid</a>.</li>
       <li><strong>Resend Inc.</strong> — bezorging van transactionele e-mails (de magic-link). E-mailadres + onderwerp gaan via Resend. <a href="https://resend.com/privacy" target="_blank" rel="noopener">Resend privacybeleid</a>.</li>
+      <li><strong>Google LLC (Google Analytics 4)</strong> — anonieme bezoekersstatistieken (pageviews, land, apparaat, gebruikersflow). IP-anonimiseren staat aan; geen advertentie-koppeling. <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google privacybeleid</a>.</li>
       <li><strong>Fly.io</strong> (hosting backend) en <strong>Netlify</strong> (hosting frontend) — infrastructuur waar de software op draait. Beiden contractueel AVG-conform.</li>
     </ul>
     <p>
@@ -211,21 +221,27 @@
 
     <h2><span class="num">5.</span> Doorgifte buiten de EU</h2>
     <p>
-      Resend Inc. is gevestigd in de Verenigde Staten. Doorgifte vindt plaats onder
-      het EU-US Data Privacy Framework en/of standaard contractbepalingen (SCC's) van
-      de Europese Commissie. Mollie, Fly.io en Netlify hosten relevante data binnen
-      de EU/EER.
+      Resend Inc. en Google LLC (Google Analytics) zijn gevestigd in de Verenigde
+      Staten. Doorgifte vindt plaats onder het EU-US Data Privacy Framework en/of
+      standaard contractbepalingen (SCC's) van de Europese Commissie. Mollie, Fly.io
+      en Netlify hosten relevante data binnen de EU/EER.
     </p>
 
     <h2><span class="num">6.</span> Cookies en lokale opslag</h2>
     <p>
-      Buurtscan gebruikt geen tracking-cookies en geen cookie-banner. Wel kunnen
-      in jouw browser de volgende technische items worden opgeslagen:
+      Buurtscan plaatst alleen analytics-cookies van Google Analytics 4 en
+      essentiële technische items. Geen advertentie-cookies. Concreet:
     </p>
     <ul>
+      <li><strong>Google Analytics 4 cookies</strong> (<code>_ga</code>, <code>_ga_*</code>): meten anonieme pageviews. Bewaartermijn 14 maanden. Bevatten een willekeurig client-ID; geen koppeling aan e-mail of adres.</li>
       <li><strong>localStorage</strong>: optionele dev-vlaggen die je zelf zou kunnen instellen, of UI-voorkeuren. Geen identificatie.</li>
       <li><strong>Session-cookies</strong>: alleen als je bij een betaling tijdelijk een sessie aangaat met Mollie. Die zijn van Mollie, niet van ons.</li>
     </ul>
+    <p>
+      Wil je géén Google Analytics? Schakel cookies uit in je browser-instellingen
+      of installeer een tracker-blokker (uBlock Origin, Privacy Badger). De site
+      werkt volledig zonder.
+    </p>
 
     <h2><span class="num">7.</span> Beveiliging</h2>
     <p>

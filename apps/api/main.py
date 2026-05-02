@@ -84,13 +84,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         if ct.startswith("text/html"):
             h.setdefault("Content-Security-Policy",
                 "default-src 'self'; "
-                "script-src 'self' https://unpkg.com https://maps.googleapis.com 'unsafe-inline'; "
+                # Google Analytics tag-loader is een external script
+                "script-src 'self' https://unpkg.com https://maps.googleapis.com "
+                    "https://www.googletagmanager.com 'unsafe-inline'; "
                 "style-src 'self' https://unpkg.com https://fonts.googleapis.com 'unsafe-inline'; "
                 "img-src 'self' data: blob: https://*.openstreetmap.org https://*.pdok.nl "
                     "https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com "
                     "https://*.basemaps.cartocdn.com "
                     # BZK WMS — 100m leefbaarheids-grid tile-overlay op /kaart
-                    "https://geo.leefbaarometer.nl; "
+                    "https://geo.leefbaarometer.nl "
+                    # GA pixel-tracking
+                    "https://www.google-analytics.com https://*.google-analytics.com; "
                 "font-src 'self' https://fonts.gstatic.com data:; "
                 "connect-src 'self' https://api.pdok.nl https://*.openstreetmap.org "
                     "https://service.pdok.nl https://*.overheid.nl https://service.omgevingswet.overheid.nl "
@@ -98,7 +102,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                     # MapLibre source-map fetch op error/devtools
                     "https://unpkg.com "
                     # BZK WMS GetFeatureInfo voor klik-tooltip op 100m grid
-                    "https://geo.leefbaarometer.nl; "
+                    "https://geo.leefbaarometer.nl "
+                    # GA event-collection (XHR + sendBeacon)
+                    "https://www.google-analytics.com https://*.google-analytics.com "
+                    "https://www.googletagmanager.com; "
                 "frame-src https://www.google.com; "  # Google Maps embed
                 # MapLibre GL maakt een Web Worker via blob: voor tile-rendering;
                 # zonder expliciete worker-src valt CSP terug op script-src dat
